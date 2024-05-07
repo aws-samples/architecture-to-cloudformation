@@ -1,0 +1,225 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: >
+  This stack creates a serverless architecture on AWS for processing object uploads.
+  The architecture includes an AWS Lambda function, and an Amazon DynamoDB table.
+  When an object is uploaded to the S3 bucket (provided by user), it triggers the Lambda function, which saves the uploaded object's metadata in the DynamoDB table.
+
+Metadata:
+  'AWS::CloudFormation::Interface':
+    ParameterGroups:
+      - Label:
+          default: 'EnironmentConfig'
+        Parameters:
+        - S3BucketName
+        - ObjectSuffix
+        - DynamoDBName
+        - LambdaFunctionName
+
+Parameters:
+  S3BucketName:
+    Description: S3 Bucket name match pattern ^[a-z0-9][a-z0-9//.//-]*[a-z0-9]$]
+    Type: String
+    MinLength: 1
+    MaxLength: 63
+    AllowedPattern: ^[a-z0-9][a-z0-9-]*[a-z0-9]$
+
+  DynamoDBName:
+    Description: Name of DynamoDB table
+    Type: String
+    MinLength: 1
+    
+Resources:
+  LoggingBucket: 
+    Type: "AWS::S3::Bucket"
+    DeletionPolicy: Retain
+    Properties:
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerPreferred
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
+
+  LoggingBucketPolicy:
+    Type: 'AWS::S3::BucketPolicy'
+    DeletionPolicy: Retain
+    Properties:
+      Bucket: !Ref LoggingBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Action:
+              - 's3:PutObject'
+            Effect: Allow
+            Principal:
+              Service: logging.s3.amazonaws.com
+            Resource: 
+              - !Sub arn:aws:s3:::${LoggingBucket}/*
+          - Action:
+              - 's3:*'
+            Effect: Deny
+            Resource: 
+              - !Sub arn:aws:s3:::${LoggingBucket}/*
+              - !Sub arn:aws:s3:::${LoggingBucket}
+            Principal: "*"
+            Condition:
+              Bool:
+                'aws:SecureTransport': 'false'
+  S3Bucket:
+    Type: AWS::S3::Bucket
+    DependsOn:
+      - ProcessingLambdaPermission
+    Properties:
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LoggingConfiguration:
+        DestinationBucketName: !Ref LoggingBucket
+        LogFilePrefix: bucket-logs
+      VersioningConfiguration:
+        Status: Enabled
+      BucketName: !Join ["-", [!Ref S3BucketName, !Ref AWS::AccountId]]
+      NotificationConfiguration:
+        LambdaConfigurations:
+          - Event: s3:ObjectCreated:*
+            Function: !GetAtt ProcessingLambdaFunction.Arn
+            Filter:
+              S3Key:
+                Rules:
+                - Name: suffix
+                  Value: .csv
+  
+  S3BucketPolicy:
+    Type: 'AWS::S3::BucketPolicy'
+    Properties:
+      Bucket: !Ref S3Bucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Action:
+              - 's3:*'
+            Effect: Deny
+            Resource: 
+              - !Sub arn:aws:s3:::${LoggingBucket}/*
+              - !Sub arn:aws:s3:::${LoggingBucket}
+            Principal: "*"
+            Condition:
+              Bool:
+                'aws:SecureTransport': 'false'
+
+  # Give access to Amazon S3 to invoke Lambda function S3Bucket
+  # Make sure ProcessingLambdaPermission is created before 
+  ProcessingLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: 'lambda:InvokeFunction'
+      FunctionName: !Ref ProcessingLambdaFunction
+      Principal: s3.amazonaws.com
+      SourceArn: !Sub 'arn:aws:s3:::${S3BucketName}-${AWS::AccountId}'
+      SourceAccount: !Ref AWS::AccountId
+
+  # Lambda Function
+  ProcessingLambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Runtime: python3.12
+      Handler: index.lambda_handler
+      Role: !GetAtt LambdaRole.Arn
+      Timeout: 15
+      Environment:
+        Variables:
+          DynamoDBName: !Ref DynamoDBName
+      Code:
+        ZipFile: |
+          import boto3
+          import os
+
+          def lambda_handler(event, context):
+            s3 = boto3.client('s3')
+            dynamodb = boto3.resource('dynamodb')
+
+            DynamoDBName = os.environ['DynamoDBName']
+
+            table = dynamodb.Table(DynamoDBName)
+
+            for record in event['Records']:
+              bucket = record['s3']['bucket']['name']
+              key = record['s3']['object']['key']
+              obj = s3.get_object(Bucket=bucket, Key=key)
+              metadata = obj['Metadata']
+
+              table.put_item(Item={
+                'ObjectKey': key,
+                'Metadata': metadata
+              })
+
+  # Lambda Role
+  LambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: S3Access
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 's3:GetObject'
+                Resource: !Join ['', ['arn:aws:s3:::', !Join ["-", [!Ref S3BucketName, !Ref AWS::AccountId]], '/*']]
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'dynamodb:PutItem'
+                Resource: !GetAtt DynamoDBTable.Arn
+  
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${ProcessingLambdaFunction}'
+      RetentionInDays: 14
+
+  # DynamoDB Table
+  DynamoDBTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Ref DynamoDBName
+      AttributeDefinitions:
+        - AttributeName: ObjectKey
+          AttributeType: S
+      KeySchema:
+        - AttributeName: ObjectKey
+          KeyType: HASH
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5
+
+Outputs:
+  S3BucketName:
+    Description: S3 bucket for storing objects
+    Value: !Ref S3Bucket
+  ProcessingLambdaFunctionArn:
+    Description: ARN of the Lambda function
+    Value: !GetAtt ProcessingLambdaFunction.Arn
+  DynamoDBTableName:
+    Description: DynamoDB table for storing object metadata
+    Value: !Ref DynamoDBTable
