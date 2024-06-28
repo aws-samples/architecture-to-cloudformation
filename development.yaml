@@ -283,33 +283,16 @@ Resources:
                   - "kms:Decrypt"
                 Resource:
                   - !Sub "arn:aws:kms:${AWS::Region}:${AWS::AccountId}:key/alias/aws/ssm"
-        - PolicyName: 'BedrockAgentAccessPolicy'
+        - PolicyName: 'BedrockAccessPolicy'
           PolicyDocument:
             Version: '2012-10-17'
             Statement:              
               - Effect: 'Allow'
                 Action:
-                  - 'bedrock:InvokeAgent'
+                  - 'bedrock:InvokeModel'
+                  - 'bedrock:InvokeModelWithResponseStream'
                 Resource:
-                  - !GetAtt AgentResource.AgentArn
-        - PolicyName: 'DataBucketAccessPolicy'
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:              
-              - Effect: 'Allow'
-                Action:
-                  - 's3:GetObject'
-                Resource:
-                  - !Sub arn:aws:s3:::datasource${AWS::AccountId}-${EnvironmentName}/data/*
-        - PolicyName: KnowledgeBasePolicy
-          PolicyDocument:
-            Version: 2012-10-17
-            Statement:
-              - Effect: Allow
-                Action:
-                  - bedrock:Retrieve
-                Resource:
-                  - !GetAtt KnowledgeBase.KnowledgeBaseArn
+                  - !Sub arn:aws:bedrock:${AWS::Region}::foundation-model/${ModelId}
 
   StreamlitLogGroup:
     DeletionPolicy: Retain
@@ -317,7 +300,6 @@ Resources:
     Properties:
       RetentionInDays: 7
 
-  
   ################################
   #### ECS Task and Service #####
   ##############################
@@ -669,22 +651,18 @@ Resources:
                   commands:
                     - pip3 install awscli 
                     - aws ecr get-login-password --region ${AWS::Region} | docker login --username AWS --password-stdin ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com
-                    - COMMIT_HASH=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c 1-7)
-                    - COMMIT_HASH=${!COMMIT_HASH//./a}
-                    - IMAGE_TAG=${!COMMIT_HASH:=latest}
                 build:
                   commands:
                     - echo Build started on `date`
                     - printf '\n' >> Dockerfile
-                    - printf 'ENTRYPOINT ["streamlit", "run", "app.py", "--server.port=80", "--", "--modelId", "${ModelId}"]' >> Dockerfile
+                    - printf 'ENTRYPOINT ["streamlit", "run", "app.py", "--server.port=${ContainerPort}", "--", "--modelId", "${ModelId}"]' >> Dockerfile
                     - cat Dockerfile
                     - docker build -t ${StreamlitImageRepo} .
-                    - docker tag ${StreamlitImageRepo}:latest ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${StreamlitImageRepo}:$IMAGE_TAG
+                    - docker tag ${StreamlitImageRepo}:latest ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${StreamlitImageRepo}:latest
                 post_build:
                   commands:
                     - echo Build completed on `date`
-                    - docker push ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${StreamlitImageRepo}:$IMAGE_TAG
-                    - printf  '{"StreamLitImageURI":"%s"}' ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${StreamlitImageRepo}:$IMAGE_TAG > imageDetail.json
+                    - docker push ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${StreamlitImageRepo}:latest
             - { 
                 StreamlitImageRepo: !Ref StreamlitImageRepo
               }

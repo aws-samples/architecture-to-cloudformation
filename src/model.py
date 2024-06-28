@@ -2,6 +2,7 @@ import streamlit as st
 
 from src.conversation_chain import ConvoChain, backoff_mechanism, invoke_model
 
+import copy
 
 class Model:
     def __init__(self, inference_params, modelId) -> None:
@@ -60,6 +61,11 @@ class Model:
 
         # model = self._chain.get_llm()
 
+        messages = copy.deepcopy(st.session_state["messages"])
+        
+        messages.append(
+            {"role": "user", "content": [{"text": update_instructions + "\n\n" + "Do not return examples or explaination, only return the generated CloudFormation YAML template encapsulated between triple backticks (``` ```). Skip the preamble. Think step-by-step."}]}
+        )
         st.session_state["messages"].append(
             {"role": "user", "content": [{"text": update_instructions}]}
         )
@@ -72,7 +78,7 @@ class Model:
             func=invoke_model,
             modelId=self._modelId,
             inference_params=self._inference_params,
-            messages=st.session_state["messages"],
+            messages=messages,
             system_prompt=st.session_state["system_prompt"],
             data_placeholder=data_placeholder,
         )
@@ -93,7 +99,7 @@ class Model:
             return False
 
     def return_memory(self):
-        return st.session_state["messages"][2:]
+        return st.session_state["messages"][1:]
 
     def get_explain(self):
         if "explain" in st.session_state:

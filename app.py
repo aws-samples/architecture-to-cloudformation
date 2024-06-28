@@ -65,11 +65,11 @@ if uploaded_file is not None:
     if bedrock.check_memory():
         role = "assistant"
         for chat in bedrock.return_memory():
-            content = chat.to_json()["kwargs"]["content"]
+            role = "human" if chat["role"] == "user" else "assistant"
+            content = chat["content"][0]["text"]
             with st.chat_message(role):
-                st.markdown(content[0]["text"])
+                st.markdown(content)
 
-            role = "human" if role == "assistant" else "assistant"
 
     if not bedrock.check_memory():
         with st.chat_message("assistant"):
