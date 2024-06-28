@@ -1,12 +1,19 @@
 import streamlit as st
-import base64
-import src
 
+import src
+from argparse import ArgumentParser
+
+parser = ArgumentParser()
+parser.add_argument("--modelId", type=str, default=None)
+
+args = parser.parse_args()
 st.set_page_config(
     page_title="AWS",
     page_icon="👋",
     layout="wide",
 )
+
+modelId = args.modelId
 
 st.header("Architecture to CloudFormation")
 
@@ -19,7 +26,10 @@ Temperature = st.sidebar.slider(
 Top_P = st.sidebar.slider("Top P", min_value=0.0, max_value=1.0, step=0.001, value=1.0)
 Top_K = st.sidebar.slider("Top K", min_value=0, max_value=500, step=1, value=250)
 
-bedrock = src.Model({"temperature": Temperature, "top_p": Top_P, "top_k": Top_K})
+bedrock = src.Model(
+    modelId=modelId,
+    inference_params={"temperature": Temperature, "top_p": Top_P, "top_k": Top_K},
+)
 
 if st.button("Clear", type="secondary"):
     uploaded_file = None
@@ -30,7 +40,7 @@ if st.button("Clear", type="secondary"):
 uploaded_file = st.file_uploader(
     "Upload an Architecture diagram to generate AWS CloudFormation code",
     type=["jpeg", "png"],
-    disabled= bool(bedrock.get_explain())
+    disabled=bool(bedrock.get_explain()),
 )
 
 if uploaded_file is not None:
@@ -47,7 +57,9 @@ if uploaded_file is not None:
         else:
             explain_placeholder = st.empty()
             bedrock.invoke_explain_model(
-                uploaded_file, uploaded_file.type, explain_placeholder
+                uploaded_file,
+                uploaded_file.type.replace("image/", ""),
+                explain_placeholder,
             )
 
     if bedrock.check_memory():
@@ -63,9 +75,7 @@ if uploaded_file is not None:
         with st.chat_message("assistant"):
             code_placeholder = st.empty()
 
-            bedrock.invoke_code_model(
-                uploaded_file, uploaded_file.type, code_placeholder
-            )
+            bedrock.invoke_code_model(code_placeholder)
 
     if prompt := st.chat_input(
         "Give the bot instructions to update stack...",

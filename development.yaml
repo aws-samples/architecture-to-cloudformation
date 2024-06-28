@@ -39,6 +39,11 @@ Metadata:
       - PrivateSubnetBId
 
 Parameters:
+  ModelId:
+    Description: Amazon Bedrock Foundational ModelId
+    MinLength: 1
+    Default: anthropic.claude-3-sonnet-20240229-v1:0
+
   PublicSubnetAId: 
     Type: AWS::EC2::Subnet::Id
     Description: Public Subnet A Id
@@ -663,15 +668,22 @@ Resources:
                   commands:
                     - pip3 install awscli 
                     - aws ecr get-login-password --region ${AWS::Region} | docker login --username AWS --password-stdin ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com
+                    - COMMIT_HASH=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c 1-7)
+                    - COMMIT_HASH=${!COMMIT_HASH//./a}
+                    - IMAGE_TAG=${!COMMIT_HASH:=latest}
                 build:
                   commands:
                     - echo Build started on `date`
+                    - printf '\n' >> Dockerfile
+                    - printf 'ENTRYPOINT ["streamlit", "run", "app.py", "--server.port=80", "--", "--modelId", "${ModelId}"]' >> Dockerfile
+                    - cat Dockerfile
                     - docker build -t ${StreamlitImageRepo} .
-                    - docker tag ${StreamlitImageRepo}:latest ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${StreamlitImageRepo}:latest
+                    - docker tag ${StreamlitImageRepo}:latest ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${StreamlitImageRepo}:$IMAGE_TAG
                 post_build:
                   commands:
                     - echo Build completed on `date`
-                    - docker push ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${StreamlitImageRepo}:latest
+                    - docker push ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${StreamlitImageRepo}:$IMAGE_TAG
+                    - printf  '{"StreamLitImageURI":"%s"}' ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${StreamlitImageRepo}:$IMAGE_TAG > imageDetail.json
             - { 
                 StreamlitImageRepo: !Ref StreamlitImageRepo
               }
