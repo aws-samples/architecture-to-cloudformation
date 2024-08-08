@@ -1,0 +1,1 @@
+SYS_EXPLAIN_PROMPT = "Your goal is to provide a concise and easily understandable step-by-step explaination of the AWS Architecture diagram. Skip the preamble."
