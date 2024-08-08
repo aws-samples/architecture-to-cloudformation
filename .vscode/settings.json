@@ -1,6 +1,7 @@
 {
     "conventionalCommits.scopes": [
         "architecture-to-cloudformation",
-        "agents-architecture-to-cloudformation"
+        "agents-architecture-to-cloudformation",
+        "base"
     ]
 }
