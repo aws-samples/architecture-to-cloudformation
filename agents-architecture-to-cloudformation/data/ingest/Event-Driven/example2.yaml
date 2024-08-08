@@ -1,0 +1,138 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  This stack creates a serverless data processing pipeline using DynamoDB and Lambda.
+  It provisions a DynamoDB table with a stream for capturing data changes.
+  A Lambda function is triggered by the DynamoDB stream to process new and modified items.
+  The stack also includes an IAM role, CloudWatch log group, and output values for the resources.
+
+Metadata:
+  'AWS::CloudFormation::Interface':
+    ParameterGroups:
+      - Label:
+          default: 'EnironmentConfig'
+        Parameters:
+        - DynamoDBTableName
+
+Parameters:
+  DynamoDBTableName:
+    Type: String
+    Description: Name of the DynamoDB table
+    Default: DataProcessingTable
+    MinLength: 1
+    MaxLength: 255
+
+Resources:
+
+  # DynamoDB Table
+  DynamoDBTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Ref DynamoDBTableName
+      BillingMode: PROVISIONED
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5
+      StreamSpecification:
+        StreamViewType: NEW_AND_OLD_IMAGES
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+
+  # DynamoDB Stream
+  DynamoDBStream:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      EventSourceArn: !GetAtt DynamoDBTable.StreamArn
+      FunctionName: !GetAtt LambdaFunction.Arn
+      StartingPosition: LATEST
+      BatchSize: 1
+
+  # Lambda Function
+  LambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: LogFunction
+      Runtime: python3.12
+      Handler: index.lambda_handler
+      Role: !GetAtt LambdaRole.Arn
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+
+          def lambda_handler(event, context):
+              dynamodb = boto3.resource('dynamodb')
+              table = dynamodb.Table('DataProcessingTable')
+
+              for record in event['Records']:
+                  if record['eventName'] == 'INSERT':
+                      new_item = record['dynamodb']['NewImage']
+                      item_id = new_item['id']['S']
+                      # Process the new item
+                      print(f"New item inserted: {item_id}")
+                  elif record['eventName'] == 'MODIFY':
+                      new_item = record['dynamodb']['NewImage']
+                      old_item = record['dynamodb']['OldImage']
+                      item_id = new_item['id']['S']
+                      # Process the modified item
+                      print(f"Item modified: {item_id}")
+
+              return {
+                  'statusCode': 200,
+                  'body': json.dumps('Data processing completed successfully')
+              }
+
+  # Lambda Role
+  LambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'dynamodb:DescribeStream'
+                  - 'dynamodb:GetRecords'
+                  - 'dynamodb:GetShardIterator'
+                  - 'dynamodb:ListStreams'
+                Resource:
+                  - !GetAtt DynamoDBTable.StreamArn
+
+  # CloudWatch Logs
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/LogFunction'
+      RetentionInDays: 14
+
+Outputs:
+
+  DynamoDBTableName:
+    Description: Name of the DynamoDB table
+    Value: !Ref DynamoDBTable
+    Export:
+      Name: !Sub '${AWS::StackName}-DynamoDBTableName'
+
+  LambdaFunctionArn:
+    Description: ARN of the Lambda function
+    Value: !GetAtt LambdaFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-LambdaFunctionArn'

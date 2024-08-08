@@ -1,0 +1,327 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: This CloudFormation template sets up an Amazon OpenSearch serverless index with appropriate access policies. 
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Environment Configuration
+        Parameters:
+          - GitURL
+          - EnvironmentName
+          - UserRoleArn
+      - Label:
+          default: Logs Configuration
+        Parameters:
+          - LogsPolicyPolicyArn
+      - Label:
+          default: Bedrock Configuration
+        Parameters:
+          - EmbeddingBedrockModelId
+
+Parameters:
+
+  EmbeddingBedrockModelId:
+    Type: String
+    Default: "amazon.titan-embed-text-v1"
+
+  EnvironmentName:
+    Description: Lowercase unique name to distinguish different web application in
+      the same AWS account (min length 1 and max length 4)
+    Type: String
+    MinLength: 1
+    MaxLength: 4
+  
+  LogsPolicyPolicyArn:
+    Description: Policy ARN for writing logs
+    Type: String
+    MinLength: 1
+
+  GitURL:
+    Type: String
+    Description: Initial repository for web application
+  
+  UserRoleArn:
+    Description: IAM Role ARN of the user allowed to access Amazon OpenSearch Serverless Collection
+    Type: String
+    MinLength: 1
+
+Resources:
+
+  ###########################
+  ##### Knowledge Base ##### 
+  #########################
+
+  KnowledgeBaseServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub KnowledgeBaseServiceRole-${EnvironmentName}
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - bedrock.amazonaws.com
+            Action:
+              - sts:AssumeRole
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Sub ${AWS::AccountId}
+              ArnLike:
+                AWS:SourceArn: !Sub arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:knowledge-base/*
+      Policies:
+        - PolicyName: BedrockAccessPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock:ListFoundationModels
+                  - bedrock:ListCustomModels
+                Resource:
+                  - '*'
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeModel
+                Resource: !Sub arn:aws:bedrock:${AWS::Region}::foundation-model/${EmbeddingBedrockModelId}
+        - PolicyName: DataSourcePolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:Get*
+                  - s3:List*
+                Resource:
+                  - !Sub arn:aws:s3:::datasource${AWS::AccountId}-${EnvironmentName}
+                  - !Sub arn:aws:s3:::datasource${AWS::AccountId}-${EnvironmentName}/*
+                Condition:
+                  StringEquals:
+                    aws:PrincipalAccount: !Sub ${AWS::AccountId}
+        - PolicyName: AOSSAPIPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - aoss:APIAccessAll
+                Resource:
+                  - !Sub arn:aws:aoss:${AWS::Region}:${AWS::AccountId}:collection/${AOSSCollection}
+  
+  ############################
+  ##### AOSS Collection ##### 
+  ##########################
+
+  AOSSCollection:
+    Type: AWS::OpenSearchServerless::Collection
+    Properties:
+      Name: !Sub aoss${EnvironmentName}
+      Type: VECTORSEARCH
+      Description: Amazon OpenSearch Serverless collection for storing CloudFormation
+        knowledge
+    DependsOn: 
+      - AOSSCollectionEncryptionPolicy
+
+  AOSSCollectionEncryptionPolicy:
+    Type: AWS::OpenSearchServerless::SecurityPolicy
+    Properties:
+      Name: !Sub aoss-encryption-policy-${EnvironmentName}
+      Type: encryption
+      Description: Encryption policy for OpenSearch Serverless
+      Policy: !Sub
+        - '{"Rules":[{"ResourceType":"collection","Resource":["collection/${collection}"]}],"AWSOwnedKey":true}'
+        - collection: !Sub aoss${EnvironmentName}
+
+  AOSSCollectionAccessPolicy:
+    Type: AWS::OpenSearchServerless::AccessPolicy
+    Properties:
+      Name: !Sub aoss-access-policy-${EnvironmentName}
+      Type: data
+      Description: Access policy for OpenSearch Serverless
+      Policy: !Sub
+        - '[{"Description":"Data Access for KnowledgeBase", "Rules":[{"ResourceType":"index","Resource":["index/*/*"],
+          "Permission":["aoss:*"]}, {"ResourceType": "collection","Resource": ["collection/${collection}"],"Permission": ["aoss:*"]}],
+          "Principal":["arn:aws:iam::${AWS::AccountId}:role/${KnowledgeBaseServiceRole}", "${CodeBuildRole}","${UserRoleArn}"]}]'
+        - collection: !Sub aoss${EnvironmentName}
+          CodeBuildRole: !Sub arn:aws:iam::${AWS::AccountId}:role/AossCodeBuildExecutionRole-${EnvironmentName}
+  
+  AOSSCollectionNetworkPolicy:
+    Type: AWS::OpenSearchServerless::SecurityPolicy
+    Properties:
+      Name: !Sub aoss-network-policy-${EnvironmentName}
+      Type: network
+      Description: Network policy for OpenSearch Serverless
+      Policy: !Sub
+        - '[{"Description":"Network Access for Amazon Bedrock","AllowFromPublic":true, "Rules":
+          [{"ResourceType":"collection","Resource":["collection/${collection}"]},{"ResourceType":"dashboard","Resource":["collection/${collection}"]}]}]'
+        - collection: !Sub aoss${EnvironmentName}
+
+  ################################
+  #### AoSS Init DataSource #####
+  ##############################
+
+  AossCodeBuildExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Join
+        - '-'
+        - - AossCodeBuildExecutionRole
+          - !Ref EnvironmentName
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - codebuild.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - !Ref LogsPolicyPolicyArn
+      Policies:
+        - PolicyName: AOSSAPIPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - aoss:APIAccessAll
+                Resource:
+                  - !Sub arn:aws:aoss:${AWS::Region}:${AWS::AccountId}:collection/${AOSSCollection}
+
+  AossCodeBuild:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Join
+        - '-'
+        - - AossCodeBuild
+          - !Ref EnvironmentName
+      Description: CodeBuild for initializing Aoss index
+      Cache:
+        Location: LOCAL
+        Modes:
+          - LOCAL_SOURCE_CACHE
+          - LOCAL_DOCKER_LAYER_CACHE
+        Type: LOCAL
+      Source:
+        Type: GITHUB
+        Location: !Ref GitURL
+        BuildSpec: !Sub
+          - |
+            version: 0.2
+            phases:
+              pre_build:
+                commands:
+                  - pip3 install awscli
+                  - pip3 install opensearch-py
+              build:
+                commands:
+                  - echo Build started on `date`
+                  - cd agents-architecture-to-cloudformation/
+                  - python3 util/vector_store/create_index.py ${host}
+              post_build:
+                commands:
+                  - echo Build completed on `date`
+          - host: !GetAtt AOSSCollection.CollectionEndpoint
+      Environment:
+        Type: LINUX_CONTAINER
+        Image: aws/codebuild/amazonlinux2-x86_64-standard:5.0
+        ComputeType: BUILD_GENERAL1_SMALL
+      ServiceRole: !GetAtt AossCodeBuildExecutionRole.Arn
+      TimeoutInMinutes: 10
+      Artifacts:
+        Type: NO_ARTIFACTS
+
+  AossCodeBuildLogGroup:
+    DeletionPolicy: Retain
+    Type: AWS::Logs::LogGroup
+    Properties:
+      RetentionInDays: 7
+
+  ##########################################
+  ##### Custom Resource AossCodeBuild #####
+  ########################################
+
+  AossCodeBuildCustomResourceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Join
+        - '-'
+        - - AossCodeBuildCustomRole
+          - !Ref EnvironmentName
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: /
+      ManagedPolicyArns:
+        - !Ref LogsPolicyPolicyArn
+      Policies:
+        - PolicyName: CodeBuildPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - codebuild:StartBuild
+                  - codebuild:BatchGetBuilds
+                Resource:
+                  - !GetAtt AossCodeBuild.Arn
+
+  AossCodeBuildCustomResourceFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Join
+        - '-'
+        - - ECSCustomF
+          - !Ref EnvironmentName
+      Handler: index.handler
+      Role: !GetAtt AossCodeBuildCustomResourceRole.Arn
+      Timeout: 300
+      Runtime: python3.12
+      Code:
+        ZipFile: |
+          import boto3
+          from botocore.exceptions import ClientError
+          import cfnresponse
+          from time import sleep
+
+          codebuild = boto3.client("codebuild")
+
+          def start_codebuild(build_id):
+            status = 'STARTING'
+            while status not in ['SUCCEEDED', 'FAILED', 'STOPPED', 'FAULT', 'TIMED_OUT']:
+              status = codebuild.batch_get_builds(ids=[build_id])['builds'][0]['buildStatus']
+              sleep(15)
+            if status in ['FAILED', 'STOPPED', 'FAULT', 'TIMED_OUT']:
+              raise Exception("Build failed")
+
+          def handler(event, context):
+              try:
+                request_type = event['RequestType']
+                print(request_type)
+                if request_type == 'Create':
+                  start_codebuild(codebuild.start_build(projectName=event['ResourceProperties']['AOSSPROJECT'])['build']['id'])
+              except Exception as ex:
+                print(ex)
+                cfnresponse.send(event, context, cfnresponse.FAILED, {})
+              else:
+                cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+
+  AossCodeBuildCustomResource:
+    Type: Custom::ECSRole
+    Properties:
+      ServiceToken: !GetAtt AossCodeBuildCustomResourceFunction.Arn
+      AOSSPROJECT: !Ref AossCodeBuild
+
+Outputs:
+  KnowledgeBaseServiceRoleArn:
+    Value: !GetAtt KnowledgeBaseServiceRole.Arn
+
+  AOSSCollectionArn:
+    Value: !GetAtt AOSSCollection.Arn

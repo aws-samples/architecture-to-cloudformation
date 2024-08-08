@@ -1,0 +1,1 @@
+SYS_EXPLAIN_PROMPT = "Your goal is to provide a list of AWS services and a concise and easily understandable data flow of the AWS Architecture diagram. Skip the preamble."

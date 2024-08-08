@@ -1,0 +1,326 @@
+{
+    "openapi": "3.0.0",
+    "info": {
+      "title": "CloudFormationGenerationAPI",
+      "description": "API for receiving architecture explanations to generate, validate and reiterate associated AWS CloudFormation templates.",
+      "version": "1.0.0"
+    },
+    "paths": {
+      "/generateCloudFormation": {
+        "get": {
+          "description": "Receive architecture explanation from user and return generated AWS CloudFormation template",
+          "parameters": [
+            {
+              "name": "architectureExplanation",
+              "in": "query",
+              "required": true,
+              "description": "Architecture explanation provided by the user",
+              "schema": {
+                "type": "string"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Successful response",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "CloudformationTemplate": {
+                        "type": "boolean",
+                        "example": true,
+                        "description": "Confirmation that AWS CloudFormation template generated successfully"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "404": {
+              "description": "Bad request. One or more required fields are missing or invalid.",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "error_message": {
+                        "type": "string",
+                        "description": "Error message"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "423": {
+              "description": "The source or destination resource of a method is locked. Control should be returned to user.",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "error_message": {
+                        "type": "string",
+                        "description": "Error message"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/validateCloudFormation": {
+        "get": {
+          "description": "Validate AWS CloudFormation template",
+          "responses": {
+            "200": {
+              "description": "Successful response",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "isValid": {
+                        "type": "boolean",
+                        "description": "Indicates whether the AWS CloudFormation template is valid or not"
+                      },
+                      "error": {
+                        "type": "string",
+                        "description": "Error message if the AWS CloudFormation template is invalid"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "404": {
+              "description": "Bad request. One or more required fields are missing or invalid.",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "error_message": {
+                        "type": "string",
+                        "description": "Error message"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "423": {
+              "description": "The source or destination resource of a method is locked. Control should be returned to user.",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "error_message": {
+                        "type": "string",
+                        "description": "Error message"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/reiterateCloudFormation": {
+        "get": {
+          "description": "Iteratively refine the generated AWS CloudFormation template, incorporating AWS best practices, to produce an optimized version of the CloudFormation template.",
+          "responses": {
+            "200": {
+              "description": "Successful response",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "reiteratedCloudformationTemplate": {
+                        "type": "boolean",
+                        "example": true,
+                        "description": "Confirmation that AWS CloudFormation template reiterated successfully"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "404": {
+              "description": "Bad request. One or more required fields are missing or invalid.",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "error_message": {
+                        "type": "string",
+                        "description": "Error message"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "423": {
+              "description": "The source or destination resource of a method is locked. Control should be returned to user.",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "error_message": {
+                        "type": "string",
+                        "description": "Error message"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/updateCloudFormation": {
+        "get": {
+          "description": "Update CloudFormation stack based on instruction provided by the user.",
+          "parameters": [
+            {
+              "name": "updateInstruction",
+              "in": "query",
+              "required": true,
+              "description": "Update instruction provided by the user",
+              "schema": {
+                "type": "string"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Successful response",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "updatedCloudformationTemplate": {
+                        "type": "boolean",
+                        "example": true,
+                        "description": "Confirmation that AWS CloudFormation template updated successfully"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "404": {
+              "description": "Bad request. One or more required fields are missing or invalid.",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "error_message": {
+                        "type": "string",
+                        "description": "Error message"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "423": {
+              "description": "The source or destination resource of a method is locked. Control should be returned to user.",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "error_message": {
+                        "type": "string",
+                        "description": "Error message"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/resolveCloudFormation": {
+        "get": {
+          "description": "Resolve cloudformation template error to generate a new AWS CloudFormation template",
+          "parameters": [
+            {
+              "name": "cloudformationInstruction",
+              "in": "query",
+              "required": true,
+              "description": "CloudFormation instruction to update AWS CloudFormation template",
+              "schema": {
+                "type": "string"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Successful response",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "updatedCloudformationTemplate": {
+                        "type": "boolean",
+                        "example": true,
+                        "description": "Confirmation that AWS CloudFormation template updated successfully"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "404": {
+              "description": "Bad request. One or more required fields are missing or invalid.",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "error_message": {
+                        "type": "string",
+                        "description": "Error message"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "423": {
+              "description": "The source or destination resource of a method is locked. Control should be returned to user.",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "error_message": {
+                        "type": "string",
+                        "description": "Error message"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }

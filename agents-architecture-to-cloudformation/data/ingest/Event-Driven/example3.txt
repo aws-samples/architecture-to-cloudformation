@@ -1,0 +1,15 @@
+This AWS architecture diagram depicts a serverless application that processes CSV files uploaded by a user and sends notifications via email. Here's a step-by-step explanation of the components and their interactions:
+
+The user initiates the process by uploading a CSV file from their device or application.
+
+The CSV file is stored in an Amazon S3 bucket, which is a highly scalable and durable object storage service provided by AWS.
+
+The arrival of the CSV file in the S3 bucket triggers an AWS Lambda function. Lambda is a serverless compute service that allows running code without provisioning or managing servers.
+
+The Lambda function processes the CSV file. The specific processing logic is not shown in the diagram but could involve data transformation, validation, or any other required operations.
+
+After processing the CSV file, the Lambda function sends a notification to the Amazon Simple Notification Service (SNS). SNS is a fully managed messaging service that enables the delivery of messages to various endpoints, such as email addresses or mobile devices.
+
+SNS is configured to send an email notification to the specified recipient(s). This email could contain information about the successful processing of the CSV file or any other relevant details.
+
+In summary, this serverless architecture leverages AWS services like S3, Lambda, and SNS to automate the processing of CSV files uploaded by users. The process is triggered by the file upload to S3, and the Lambda function handles the processing logic. Finally, SNS sends an email notification to inform the user or other stakeholders about the completion of the process.

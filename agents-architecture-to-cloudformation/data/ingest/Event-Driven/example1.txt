@@ -1,0 +1,13 @@
+Here is a step-by-step description of the AWS architecture diagram:
+
+The client application uploads an object to an Amazon S3 bucket. This triggers an "ObjectUploaded" event.
+
+The ObjectUploaded event invokes an AWS Lambda function via an Amazon S3 event notification configuration, likely using the .csv extension as the event source mapping.
+
+The Lambda function processes the uploaded object and saves its metadata to an Amazon DynamoDB table.
+
+The architecture leverages AWS Lambda as a serverless computing service, allowing code to run without provisioning or managing servers.
+
+Amazon S3 serves as a highly scalable and durable object storage service, acting as the entry point for the data flow.
+
+DynamoDB, a fully managed NoSQL database service, stores the metadata extracted from the uploaded objects, enabling efficient querying and retrieval.

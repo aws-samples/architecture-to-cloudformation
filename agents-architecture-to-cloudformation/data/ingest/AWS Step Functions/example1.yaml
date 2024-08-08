@@ -1,0 +1,541 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  This CloudFormation stack sets up a serverless data processing pipeline. 
+  It uses EventBridge to trigger a Step Functions workflow when data is uploaded to an S3 bucket. 
+  The workflow invokes Lambda functions to clean the data, summarize it, and generate action items using the Anthropic Claude model. 
+  The processed data is stored in another S3 bucket.
+
+Resources:
+  LoggingBucket: 
+    Type: "AWS::S3::Bucket"
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerPreferred
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
+
+  LoggingBucketPolicy:
+    Type: 'AWS::S3::BucketPolicy'
+    Properties:
+      Bucket: !Ref LoggingBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Action:
+              - 's3:PutObject'
+            Effect: Allow
+            Principal:
+              Service: logging.s3.amazonaws.com
+            Resource: 
+              - !Sub arn:aws:s3:::${LoggingBucket}/*
+
+  # Eventbridge rule
+  EventBridgeRuleRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: 'sts:AssumeRole'
+      Policies:
+        - PolicyName: StartExecutionPolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'states:StartExecution'
+                Resource:
+                  - !GetAtt 
+                    - DataProcessingStateMachine
+                    - Arn
+  
+  EventBridgeRule:
+    Type: 'AWS::Events::Rule'
+    Properties:
+      EventPattern:
+        source:
+          - aws.s3
+        detail-type:
+          - Object Created
+        detail:
+          bucket:
+            name:
+              - !Ref OriginBucket
+          object: 
+            key: [ { "suffix": "data.txt" } ]
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt 
+            - DataProcessingStateMachine
+            - Arn
+          Id: EventBridgeRuleTarget
+          RoleArn: !GetAtt 
+            - EventBridgeRuleRole
+            - Arn
+
+  # S3 Bucket
+  OriginBucket:
+    Type: "AWS::S3::Bucket"
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LoggingConfiguration:
+        DestinationBucketName: !Ref LoggingBucket
+        LogFilePrefix: origin-logs
+      VersioningConfiguration:
+        Status: Enabled
+      NotificationConfiguration:
+        EventBridgeConfiguration:
+          EventBridgeEnabled: true
+  
+  OriginBucketPolicy:
+    Type: 'AWS::S3::BucketPolicy'
+    Properties:
+      Bucket: !Ref OriginBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Action:
+              - 's3:*'
+            Effect: Deny
+            Resource: 
+              - !Sub arn:aws:s3:::${OriginBucket}/*
+              - !Sub arn:aws:s3:::${OriginBucket}
+            Principal: "*"
+            Condition:
+              Bool:
+                'aws:SecureTransport': 'false'
+
+  DeliveryBucket:
+    Type: "AWS::S3::Bucket"
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LoggingConfiguration:
+        DestinationBucketName: !Ref LoggingBucket
+        LogFilePrefix: delivery-logs
+      VersioningConfiguration:
+        Status: Enabled
+
+  DeliveryBucketPolicy:
+    Type: 'AWS::S3::BucketPolicy'
+    Properties:
+      Bucket: !Ref DeliveryBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Action:
+              - 's3:*'
+            Effect: Deny
+            Resource: 
+              - !Sub arn:aws:s3:::${DeliveryBucket}/*
+              - !Sub arn:aws:s3:::${DeliveryBucket}
+            Principal: "*"
+            Condition:
+              Bool:
+                'aws:SecureTransport': 'false'
+  # Policeis
+  CloudWatchLogsPolicy:
+    Type: "AWS::IAM::ManagedPolicy"
+    Properties:
+      Path: /
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: 'Allow'
+            Action:
+              - 'logs:CreateLogGroup'
+              - 'logs:CreateLogStream'
+              - 'logs:PutLogEvents'
+            Resource: 'arn:aws:logs:*:*:*'
+
+  BedrockInvokePolicy:
+    Type: "AWS::IAM::ManagedPolicy"
+    Properties:
+      Path: /
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+              - 'bedrock:InvokeModel'
+            Resource: !Sub 'arn:aws:bedrock:${AWS::Region}::foundation-model/anthropic.claude-v2'
+  
+  S3PutPolicy:
+    Type: "AWS::IAM::ManagedPolicy"
+    Properties:
+      Path: /
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: 'Allow'
+            Action:
+              - 's3:PutObject'
+              - 's3:PutObjectAcl'
+            Resource: !Join ["", [!GetAtt DeliveryBucket.Arn, "/*"]]
+
+  S3GetPolicy:
+    Type: "AWS::IAM::ManagedPolicy"
+    Properties:
+      Path: /
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+              - 's3:GetObjectAcl'
+              - 's3:GetObject'
+            Resource: !Join ["", [!GetAtt OriginBucket.Arn, "/*"]]
+
+  # Lambda role for CleanTranscript, SummarizeTranscript, and ActionItemTranscript
+  CleanFunctionRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: 'Allow'
+            Principal:
+              Service: 'lambda.amazonaws.com'
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - !GetAtt CloudWatchLogsPolicy.PolicyArn
+        - !GetAtt S3GetPolicy.PolicyArn
+
+  SummarizeFunctionRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: 'Allow'
+            Principal:
+              Service: 'lambda.amazonaws.com'
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - !GetAtt S3GetPolicy.PolicyArn
+        - !GetAtt S3PutPolicy.PolicyArn
+        - !GetAtt CloudWatchLogsPolicy.PolicyArn
+        - !GetAtt BedrockInvokePolicy.PolicyArn
+  
+  ActionItemFunctionRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: 'Allow'
+            Principal:
+              Service: 'lambda.amazonaws.com'
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - !GetAtt S3GetPolicy.PolicyArn
+        - !GetAtt S3PutPolicy.PolicyArn
+        - !GetAtt CloudWatchLogsPolicy.PolicyArn
+        - !GetAtt BedrockInvokePolicy.PolicyArn
+
+  # Lambda Function
+  CleanFunction:
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      Handler: index.lambda_handler
+      Role: !GetAtt CleanFunctionRole.Arn
+      Runtime: python3.12
+      Timeout: 900
+      Code:
+        ZipFile: |
+          import boto3
+          import os
+
+          # Boto3 clients
+          s3 = boto3.client('s3')
+
+          def lambda_handler(event, context):
+              # Get transcript from event
+              s3_key = event["detail"]["object"]["key"]
+              bucket_name = event["detail"]["bucket"]["name"]
+
+              s3_response = s3.get_object(Bucket=bucket_name, Key=s3_key)
+              
+              data = s3_response['Body'].read().decode('utf-8')
+              
+              ####### clean transcript ######
+
+              return {
+                  "clean_data": data,
+                  }
+
+  SummarizeFunction:
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      Handler: index.lambda_handler
+      Role: !GetAtt SummarizeFunctionRole.Arn
+      Runtime: python3.12
+      Timeout: 600
+      Environment:
+        Variables:
+          S3_BUCKET_NAME: !Ref DeliveryBucket
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import os
+          import re
+
+          bedrock = boto3.client('bedrock-runtime')
+          s3 = boto3.client('s3')
+
+          def invoke_bedrock(text, max_tokens_to_sample=2000):
+
+              pattern = re.compile(r'<rewrite>(.*?)</rewrite>', re.DOTALL)
+
+              prompt = f"""\n\nHuman: <transcript> 
+              {text}
+              </transcript>
+              Summarize the above dialogue.
+              Please output your rewrite in <rewrite></rewrite> tags.\n\nAssistant:
+              """ 
+              data_body = json.dumps({"prompt": prompt,  "max_tokens_to_sample": max_tokens_to_sample, "temperature": 1, "top_k": 250, "top_p": 1, "stop_sequences": ["\n\nHuman:"], "anthropic_version": "bedrock-2023-05-31"})
+              modelId = "anthropic.claude-v2"
+              accept = "*/*"
+              contentType = "application/json"
+              response = bedrock.invoke_model(
+                  body=data_body, modelId=modelId, accept=accept, contentType=contentType
+              )
+
+              summary = json.loads(response.get("body").read())['completion']
+
+              summary = re.findall(pattern, summary)[0]
+
+              return summary
+
+          def lambda_handler(event, context):
+
+              summary = invoke_bedrock(event["clean_data"])
+
+              s3.put_object(Bucket=os.environ['S3_BUCKET_NAME'], Key="summary.txt", Body=summary)
+
+              return {
+                  "statusCode": 200
+              }
+
+  ActionItemFunction:
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      Handler: index.lambda_handler
+      Role: !GetAtt ActionItemFunctionRole.Arn
+      Runtime: python3.12
+      Timeout: 600
+      Environment:
+        Variables:
+          S3_BUCKET_NAME: !Ref DeliveryBucket
+      Code:
+        ZipFile: |
+          import boto3
+          import os
+          import re
+          import json
+
+          bedrock = boto3.client('bedrock-runtime')
+          s3 = boto3.client('s3')
+
+          def invoke_bedrock(text, max_tokens_to_sample=2000):
+              pattern = re.compile(r'<rewrite>(.*?)</rewrite>', re.DOTALL)
+
+              prompt = f"""\n\nHuman: <transcript> 
+                  {text}
+                  </transcript>
+                  From the meeting transcript above, Create a list of action items for each person. 
+              
+                  Please output your action items in <rewrite></rewrite> tags.\n\nAssistant:
+              """                
+              
+              data_body = json.dumps({"prompt": prompt,  "max_tokens_to_sample": max_tokens_to_sample, "temperature": 1, "top_k": 250, "top_p": 1, "stop_sequences": ["\n\nHuman:"], "anthropic_version": "bedrock-2023-05-31"})
+              modelId = "anthropic.claude-v2"
+              accept = "*/*"
+              contentType = "application/json"
+              
+              response = bedrock.invoke_model(
+                  body=data_body, modelId=modelId, accept=accept, contentType=contentType
+              )
+
+              action_items = json.loads(response.get("body").read())['completion']
+              
+              action_items = re.findall(pattern, action_items)[0]
+              
+              return action_items
+
+          def lambda_handler(event, context):
+
+              action_items = invoke_bedrock(event["clean_data"])
+              
+              s3.put_object(Bucket=os.environ['S3_BUCKET_NAME'], Key="action_items.txt", Body=action_items)
+
+              return {
+                  "statusCode": 200
+              }
+
+  # State Machine
+  StateMachineRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service: states.amazonaws.com
+            Action: "sts:AssumeRole"
+      Path: "/"
+      Policies:
+        - PolicyName: InvokeFunctionPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "lambda:InvokeFunction"
+                Resource: [!GetAtt CleanFunction.Arn, !GetAtt SummarizeFunction.Arn, !GetAtt ActionItemFunction.Arn]
+        - PolicyName: XRayAccessPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - xray:PutTraceSegments
+                  - xray:PutTelemetryRecords
+                  - xray:GetSamplingRules
+                  - xray:GetSamplingTargets
+                Resource:
+                  - "*"
+                  
+  DataProcessingStateMachine:
+    Type: "AWS::StepFunctions::StateMachine"
+    Properties:
+      RoleArn: !GetAtt [ StateMachineRole, Arn ]
+      DefinitionString:
+        !Sub
+          - |
+            {
+              "StartAt": "CleanData",
+              "States": {
+                "CleanData": {
+                  "Type": "Task",
+                  "Resource": "arn:aws:states:::lambda:invoke",
+                  "OutputPath": "$.Payload",
+                  "Parameters": {
+                    "Payload.$": "$",
+                    "FunctionName": "${CleanFunctionARN}"
+                  },
+                  "Retry": [
+                    {
+                      "ErrorEquals": [
+                        "Lambda.ServiceException",
+                        "Lambda.AWSLambdaException",
+                        "Lambda.SdkClientException",
+                        "Lambda.TooManyRequestsException"
+                      ],
+                      "IntervalSeconds": 1,
+                      "MaxAttempts": 3,
+                      "BackoffRate": 2
+                    }
+                  ],
+                  "Next": "Parallel"
+                },
+                "Parallel": {
+                  "Type": "Parallel",
+                  "Branches": [
+                    {
+                      "StartAt": "SummarizeData",
+                      "States": {
+                        "SummarizeData": {
+                          "Type": "Task",
+                          "Resource": "arn:aws:states:::lambda:invoke",
+                          "OutputPath": "$.Payload",
+                          "Parameters": {
+                            "Payload.$": "$",
+                            "FunctionName": "${SummarizeFunctionARN}"
+                          },
+                          "Retry": [
+                            {
+                              "ErrorEquals": [
+                                "Lambda.ServiceException",
+                                "Lambda.AWSLambdaException",
+                                "Lambda.SdkClientException",
+                                "Lambda.TooManyRequestsException"
+                              ],
+                              "IntervalSeconds": 1,
+                              "MaxAttempts": 3,
+                              "BackoffRate": 2
+                            }
+                          ],
+                          "End": true
+                        }
+                      }
+                    },
+                    {
+                      "StartAt": "ActionItemData",
+                      "States": {
+                        "ActionItemData": {
+                          "Type": "Task",
+                          "Resource": "arn:aws:states:::lambda:invoke",
+                          "OutputPath": "$.Payload",
+                          "Parameters": {
+                            "Payload.$": "$",
+                            "FunctionName": "${ActionItemFunctionARN}"
+                          },
+                          "Retry": [
+                            {
+                              "ErrorEquals": [
+                                "Lambda.ServiceException",
+                                "Lambda.AWSLambdaException",
+                                "Lambda.SdkClientException",
+                                "Lambda.TooManyRequestsException"
+                              ],
+                              "IntervalSeconds": 1,
+                              "MaxAttempts": 3,
+                              "BackoffRate": 2
+                            }
+                          ],
+                          "End": true
+                        }
+                      }
+                    }
+                  ],
+                  "End": true
+                }
+              }
+            }
+          - {
+              CleanFunctionARN: !GetAtt [ CleanFunction, Arn ],
+              SummarizeFunctionARN: !GetAtt [ SummarizeFunction, Arn ],
+              ActionItemFunctionARN: !GetAtt [ ActionItemFunction, Arn ]
+            }

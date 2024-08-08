@@ -1,0 +1,6 @@
+This architecture diagram depicts an AWS Lambda function that interacts with Amazon Bedrock. The flow is as follows:
+
+A client or event triggers the Lambda function.
+The Lambda function executes its code, which likely involves interacting with Amazon Bedrock.
+After interacting with Bedrock, the Lambda function completes its execution and returns a response or performs any necessary follow-up actions.
+This architecture leverages the serverless nature of Lambda functions and Amazon Bedrock, enabling efficient and secure application deployment and management on AWS.

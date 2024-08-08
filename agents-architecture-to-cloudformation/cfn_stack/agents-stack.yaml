@@ -1,0 +1,219 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: This CloudFormation template sets up an Agent for Amazon Bedrock.
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Environment Configuration
+        Parameters:
+          - EnvironmentName
+      - Label:
+          default: Knowledge base Configuration
+        Parameters:
+          - KnowledgeBaseId
+          - KnowledgeBaseArn
+      - Label:
+          default: Bedrock Configuration
+        Parameters:
+          - BedrockModelId
+      - Label:
+          default: Data store Configuration
+        Parameters:
+          - DynamoDBTableArn
+
+Parameters:
+
+  EnvironmentName:
+    Type: String
+    Description: The name of the environment
+    MinLength: 1
+    MaxLength: 4
+
+  BedrockModelId:
+    Type: String
+    Default: anthropic.claude-3-sonnet-20240229-v1:0
+    Description: Amazon Bedrock Model ID for the agent
+    MinLength: 1
+  
+  KnowledgeBaseId:
+    Type: String
+    Description: Knowledge Base ID for the agent
+    MinLength: 1
+  
+  KnowledgeBaseArn:
+    Type: String
+    Description: Knowledge Base ARN for the agent
+  
+  DynamoDBTableArn:
+    Type: String
+    Description: DynamoDB Table ARN for the agent
+
+Resources:
+  ###################
+  ##### Agents #####
+  #################
+
+  AgentResource:
+    Type: AWS::Bedrock::Agent
+    Properties:
+      AgentName: !Sub atc-agent-${EnvironmentName}
+      AgentResourceRoleArn: !GetAtt AgentRole.Arn
+      FoundationModel: !Ref BedrockModelId
+      Instruction: |
+        You are a task management bot that generates a valid and secure AWS CloudFormation template in YAML format. 
+        You can either generate a CloudFormation template based on provided AWS Architecture diagram explanation or update an existing CloudFormation template based on provided update instructions.
+        You have access to the following tools:
+          - GenerateCloudFormation: Receive architecture explanation from user and return generated AWS CloudFormation template.
+          - ReiterateCloudFormation: Iteratively refine the generated AWS CloudFormation template, incorporating AWS best practices, to produce an optimized version of the CloudFormation template.
+          - ValidateCloudFormation: Validate AWS CloudFormation template.
+          - ResolveCloudFormation: Resolve CloudFormation template error to generate a new AWS CloudFormation template.
+          - UpdateCloudFormation: Update CloudFormation template based on instruction provided by the user.
+      Description: Agent for Architecture to CloudFormation.
+      ActionGroups:
+        - ActionGroupName: atcActionGroup
+          ActionGroupExecutor:
+            Lambda: !GetAtt AgentLambdaFunction.Arn
+          ApiSchema:
+            S3:
+              S3BucketName: !Sub datasource${AWS::AccountId}-${EnvironmentName}
+              S3ObjectKey: agent/openAPI.json
+
+  AgentAliasResource:
+    Type: AWS::Bedrock::AgentAlias
+    Properties:
+      AgentId: !GetAtt AgentResource.AgentId
+      AgentAliasName: !Sub atc-alias-${EnvironmentName}
+
+  AgentRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub AmazonBedrockExecutionRoleForAgents_${EnvironmentName}
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - bedrock.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: BedrockInvokeModelPolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeModel
+                Resource: !Sub arn:aws:bedrock:${AWS::Region}::foundation-model/${BedrockModelId}
+        - PolicyName: S3GetAccessPolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource: !Sub arn:aws:s3:::datasource${AWS::AccountId}-${EnvironmentName}/agent/openAPI.json
+
+  ########################
+  ##### ActionGroup #####
+  ######################
+
+  AgentLambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Runtime: python3.12
+      FunctionName: !Sub atc-lambda-action-${EnvironmentName}
+      Handler: lambda.lambda_handler
+      Role: !GetAtt AgentLambdaRole.Arn
+      Timeout: 300
+      Environment:
+        Variables:
+          EnvironmentName: !Ref EnvironmentName
+          KnowledgeBaseId: !Ref KnowledgeBaseId
+          BedrockModelId: !Ref BedrockModelId
+      Code:
+        S3Bucket: !Sub datasource${AWS::AccountId}-${EnvironmentName}
+        S3Key: agent/lambda.zip
+
+  AgentLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: KnowledgeBaseRetrievePolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock:Retrieve
+                Resource:
+                  - !Ref KnowledgeBaseArn
+        - PolicyName: CloudFormationValidatePolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - cloudformation:ValidateTemplate
+                Resource:
+                  - '*'
+        - PolicyName: BedrockInvokeModelPolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeModel
+                Resource:
+                  - !Sub arn:aws:bedrock:${AWS::Region}::foundation-model/${BedrockModelId}
+                  - !Sub arn:aws:bedrock:${AWS::Region}::foundation-model/anthropic.claude-3-haiku-20240307-v1:0
+        - PolicyName: DynamoDBPolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:UpdateItem
+                Resource:
+                  - !Ref DynamoDBTableArn
+        - PolicyName: S3GetAccessPolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource:
+                  - !Sub arn:aws:s3:::datasource${AWS::AccountId}-${EnvironmentName}/*
+
+  AgentLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt AgentLambdaFunction.Arn
+      Principal: bedrock.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
+      SourceArn: !GetAtt AgentResource.AgentArn
+
+Outputs:
+  AgentId: 
+    Value: !GetAtt AgentResource.AgentId
+  AgentAliasId: 
+    Value: !GetAtt AgentAliasResource.AgentAliasId
+  AgentAliasArn: 
+    Value: !GetAtt AgentAliasResource.AgentAliasArn

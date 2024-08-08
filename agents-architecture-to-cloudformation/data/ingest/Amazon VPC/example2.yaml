@@ -1,0 +1,468 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: 
+  This template deploys following resources
+  1. VPC, with two public and two private subnets spread across two Availability Zones. 
+  2. An internet gateway, with a default route on the public subnets.
+  3. Pair of NAT gateways (one in each AZ),and default routes for them in the private subnets.
+  4. An ALB, ALB security group, target groups, listeners and listener rules
+Parameters:
+  WebTierAMI:
+    Type: String
+    Description: The WebTierAMI to launch the ASG
+    MinLength: 1
+  
+  VpcCIDR:
+    Description: Please enter the IP range (CIDR notation) for this VPC
+    Type: String
+    Default: 10.0.0.0/16
+
+  PublicSubnet1CIDR:
+    Description: Please enter the IP range (CIDR notation) for the public subnet in the first Availability Zone
+    Type: String
+    Default: 10.0.0.0/24
+
+  PublicSubnet2CIDR:
+    Description: Please enter the IP range (CIDR notation) for the public subnet in the second Availability Zone
+    Type: String
+    Default: 10.0.1.0/24
+
+  PrivateWebTierSubnet1CIDR:
+    Description: Please enter the IP range (CIDR notation) for the private web tier subnet in the first Availability Zone
+    Type: String
+    Default: 10.0.2.0/24
+
+  PrivateWebTierSubnet2CIDR:
+    Description: Please enter the IP range (CIDR notation) for the private web tier subnet in the second Availability Zone
+    Type: String
+    Default: 10.0.3.0/24
+  
+  CertificateARN:
+    Description: Specifies an SSL server certificate to use as the default certificate for a secure listener. The Amazon Resource Name (ARN) of the certificate.
+    Type: String
+
+Mappings:
+  # Cloudfront Mappings
+  CFRegionMap:
+    'us-east-1':
+      PrefixListCloudFront: 'pl-3b927c52'
+    'us-west-2':
+      PrefixListCloudFront: 'pl-82a045eb'
+
+  # Cloudfront Mappings
+  ELBRegionMap:
+    'us-east-1':
+      ELBAccountId: '127311923021'
+    'us-west-2':
+      ELBAccountId: '797873946194'
+Resources:
+  LoggingBucket: 
+    Type: "AWS::S3::Bucket"
+    DeletionPolicy: Retain
+    Properties:
+      BucketEncryption:
+          ServerSideEncryptionConfiguration:
+            - ServerSideEncryptionByDefault:
+                SSEAlgorithm: AES256
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerPreferred
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
+
+  LoggingBucketPolicy:
+    Type: 'AWS::S3::BucketPolicy'
+    DeletionPolicy: Retain
+    Properties:
+      Bucket: !Ref LoggingBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Action:
+              - 's3:PutObject'
+            Effect: Allow
+            Principal:
+              Service: logging.s3.amazonaws.com
+            Resource: 
+              - !Sub arn:aws:s3:::${LoggingBucket}/*
+          - Action:
+              - 's3:PutObject'
+            Effect: Allow
+            Principal:
+              AWS: !Sub 
+                    - arn:aws:iam::${ElbAccount}:root
+                    - {ElbAccount: !FindInMap [ELBRegionMap, !Ref 'AWS::Region', ELBAccountId]}
+            Resource: 
+              - !Sub arn:aws:s3:::${LoggingBucket}/alb/logs/AWSLogs/${AWS::AccountId}/*
+          - Action:
+              - 's3:*'
+            Effect: Deny
+            Resource: 
+              - !Sub arn:aws:s3:::${LoggingBucket}/*
+              - !Sub arn:aws:s3:::${LoggingBucket}
+            Principal: "*"
+            Condition:
+              Bool:
+                'aws:SecureTransport': 'false'
+  # Logs Policy
+  LogsPolicy:
+      Type: "AWS::IAM::ManagedPolicy"
+      Properties:
+          Path: /
+          PolicyDocument:
+              Version: '2012-10-17'
+              Statement:
+              - 
+                  Effect: 'Allow'
+                  Action:
+                  - 'logs:CreateLogGroup'
+                  - 'logs:CreateLogStream'
+                  - 'logs:PutLogEvents'
+                  - 'logs:PutRetentionPolicy'
+                  Resource: '*'
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCIDR
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}'
+  
+  VPCLogGroup:
+      DeletionPolicy: Retain
+      Type: 'AWS::Logs::LogGroup'
+      Properties:
+          RetentionInDays: 7
+      
+  VPCLogRole:
+      Type: AWS::IAM::Role
+      Properties:
+          AssumeRolePolicyDocument:
+              Version: "2012-10-17"
+              Statement:
+              - 
+                  Effect: Allow
+                  Principal:
+                      Service: vpc-flow-logs.amazonaws.com
+                  Action: sts:AssumeRole
+          ManagedPolicyArns:
+              - !GetAtt LogsPolicy.PolicyArn
+
+  VPCFlowLog:
+      Type: "AWS::EC2::FlowLog"
+      Properties:
+          ResourceId: !Ref VPC
+          ResourceType: VPC
+          TrafficType: ALL
+          LogGroupName: !Ref VPCLogGroup
+          DeliverLogsPermissionArn: !GetAtt VPCLogRole.Arn
+  
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}'
+
+  InternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref InternetGateway
+      VpcId: !Ref VPC
+
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [ 0, !GetAZs '' ]
+      CidrBlock: !Ref PublicSubnet1CIDR
+      Tags:
+        - Key: Name
+          Value: !Sub PublicSubnetAZ1
+
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [ 1, !GetAZs  '' ]
+      CidrBlock: !Ref PublicSubnet2CIDR
+      Tags:
+        - Key: Name
+          Value: !Sub PublicSubnetAZ2
+
+  PrivateWebTierSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [ 0, !GetAZs  '' ]
+      CidrBlock: !Ref PrivateWebTierSubnet1CIDR
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub PrivateWebTierSubnetAZ1
+
+  PrivateWebTierSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [ 1, !GetAZs  '' ]
+      CidrBlock: !Ref PrivateWebTierSubnet2CIDR
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub PrivateWebTierSubnetAZ2
+  
+  NatGateway1EIP:
+    Type: AWS::EC2::EIP
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      Domain: vpc
+
+  NatGateway2EIP:
+    Type: AWS::EC2::EIP
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      Domain: vpc
+
+  NatGateway1:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatGateway1EIP.AllocationId
+      SubnetId: !Ref PublicSubnet1
+
+  NatGateway2:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatGateway2EIP.AllocationId
+      SubnetId: !Ref PublicSubnet2
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: PublicRouteTable
+
+  DefaultPublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet1
+
+  PublicSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet2
+
+  PrivateWebTierRouteTable1:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: PrivateWebTierRouteAZ1
+
+  DefaultPrivateWebTierRoute1:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateWebTierRouteTable1
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway1
+
+  PrivateWebTierSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateWebTierRouteTable1
+      SubnetId: !Ref PrivateWebTierSubnet1
+
+  PrivateWebTierRouteTable2:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub PrivateWebTierRouteAZ2
+
+  DefaultPrivateWebTierRoute2:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateWebTierRouteTable2
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway2
+  
+  PrivateWebTierSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateWebTierRouteTable2
+      SubnetId: !Ref PrivateWebTierSubnet2
+
+  ExternalALBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow http to the internet
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          Description: Allow 80 port from all IP
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress: 
+        - Description: Allow 80 port from all IP
+          IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: "external-alb-sg"
+  
+  WebTierSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow port 80 from External ALB
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          Description: Allow 80 port from ExternalALBSecurityGroup
+          FromPort: 80
+          ToPort: 80
+          SourceSecurityGroupId:
+            Fn::GetAtt:
+              - ExternalALBSecurityGroup
+              - GroupId
+      SecurityGroupEgress: 
+        - IpProtocol: tcp
+          Description: Allow 80 port to ExternalALBSecurityGroup
+          FromPort: 80
+          ToPort: 80
+          SourceSecurityGroupId:
+            Fn::GetAtt:
+              - ExternalALBSecurityGroup
+              - GroupId
+      Tags:
+        - Key: Name
+          Value: "webtier-sg"
+
+  WebTierTargetGroup:
+    Type: "AWS::ElasticLoadBalancingV2::TargetGroup"
+    Properties:
+      HealthCheckIntervalSeconds: 30
+      HealthCheckPath: "/health"
+      Port: 80
+      Protocol: "HTTP"
+      HealthCheckProtocol: "HTTP"
+      HealthCheckTimeoutSeconds: 5
+      UnhealthyThresholdCount: 2
+      TargetType: "instance"
+      Matcher: 
+        HttpCode: "200"
+      HealthyThresholdCount: 5
+      VpcId: !Ref VPC
+      Name: "web-tier-target-group"
+      HealthCheckEnabled: true
+      TargetGroupAttributes: 
+        - 
+          Key: "stickiness.enabled"
+          Value: "false"
+        - 
+          Key: "deregistration_delay.timeout_seconds"
+          Value: "300"
+        - 
+          Key: "stickiness.type"
+          Value: "lb_cookie"
+        - 
+          Key: "stickiness.lb_cookie.duration_seconds"
+          Value: "86400"
+        - 
+          Key: "slow_start.duration_seconds"
+          Value: "0"
+        - 
+          Key: "load_balancing.algorithm.type"
+          Value: "round_robin"
+
+  ExternalApplicationLoadBalancer:
+    DependsOn: 
+      - LoggingBucketPolicy
+    Type: "AWS::ElasticLoadBalancingV2::LoadBalancer"
+    Properties:
+      Name: "ALB-external"
+      LoadBalancerAttributes:
+        - Key: access_logs.s3.enabled
+          Value: true
+        - Key: access_logs.s3.bucket
+          Value: !Ref LoggingBucket
+        - Key: access_logs.s3.prefix
+          Value: alb/logs
+        - Key: load_balancing.cross_zone.enabled
+          Value: true
+      Scheme: "internet-facing"
+      Type: "application"
+      Subnets: 
+        - !Ref PublicSubnet1
+        - !Ref PublicSubnet2
+      SecurityGroups: 
+        - !GetAtt ExternalALBSecurityGroup.GroupId
+      IpAddressType: "ipv4"
+
+  HTTPListener:
+    Type: "AWS::ElasticLoadBalancingV2::Listener"
+    Properties:
+      LoadBalancerArn: !Ref ExternalApplicationLoadBalancer
+      Port: 80
+      Protocol: "HTTPS"
+      SslPolicy: ELBSecurityPolicy-TLS-1-2-Ext-2018-06
+      Certificates: 
+        - !Ref CertificateARN
+      DefaultActions: 
+        - 
+          Order: 1
+          TargetGroupArn: !Ref WebTierTargetGroup
+          Type: "forward"
+  
+  WebTierLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties: 
+      LaunchTemplateName: !Sub ${AWS::StackName}-launch-template
+      LaunchTemplateData:
+        ImageId: !Ref WebTierAMI
+        InstanceType: "t2.micro"
+        SecurityGroupIds: 
+          - !GetAtt WebTierSecurityGroup.GroupId
+
+  WebTierASG:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      LaunchTemplate:
+        LaunchTemplateId: !Ref WebTierLaunchTemplate
+        Version: !GetAtt WebTierLaunchTemplate.LatestVersionNumber
+      MaxSize: '2'
+      MinSize: '1'
+      DesiredCapacity: '1'
+      Cooldown: '300'
+      VPCZoneIdentifier:
+        - !Ref PrivateWebTierSubnet1
+        - !Ref PrivateWebTierSubnet2
+      TargetGroupARNs:
+        - !Ref WebTierTargetGroup
+
+Outputs:
+  ExternalALB:
+    Description: The created loadbalancer
+    Value: !Ref ExternalApplicationLoadBalancer

@@ -1,0 +1,19 @@
+The provided architecture diagram illustrates a serverless data processing pipeline built using AWS Lambda functions and other AWS services. Here's a step-by-step description of the components and their interactions:
+
+The pipeline is triggered by an event, represented by the "Invoke" arrow pointing to the "Start" component.
+
+The "Lambda: Invoke CleanData" function is the entry point of the pipeline. This function likely performs data cleaning and preprocessing tasks on the incoming data.
+
+After the data is cleaned, it is passed to the "Parallel" state, which is likely an AWS Step Functions state machine or a similar orchestration service.
+
+The "Parallel" state splits the data into multiple streams and invokes two separate Lambda functions in parallel: a. "Lambda: Invoke SummarizeData" function, which likely generates summaries or aggregations from the cleaned data. b. "Lambda: Invoke ActionItemData" function, which likely processes the data to identify action items or tasks.
+
+The outputs from the "SummarizeData" and "ActionItemData" Lambda functions are collected and combined, as indicated by the converging arrows.
+
+The combined output is then passed to the "End" component, marking the completion of the data processing pipeline.
+
+The processed data is stored in two separate data stores or destinations: a. "Auagou S3" (likely an Amazon S3 bucket) receives the "summary.txt" output, which could be the summarized or aggregated data. b. "Auagou S3" (another Amazon S3 bucket or the same one) receives the "action_item.txt" output, which could contain the identified action items or tasks.
+
+The "data.txt" arrow pointing towards "Auagou S3" suggests that the original input data might also be stored in the same or a different S3 bucket for archiving or further processing.
+
+This architecture leverages the serverless capabilities of AWS Lambda and potentially AWS Step Functions to build a scalable and event-driven data processing pipeline. The parallel execution of Lambda functions allows for efficient processing of large datasets, while the separation of concerns (data cleaning, summarization, and action item identification) promotes modularity and maintainability.

@@ -1,0 +1,23 @@
+The provided architecture diagram depicts a highly available and secure AWS cloud infrastructure setup. Here's a step-by-step description of the components and their interactions:
+
+The architecture consists of a Virtual Private Cloud (VPC) in the us-east-1 region, which provides a logically isolated network environment within the AWS cloud.
+
+The VPC is divided into two Availability Zones (us-east-1a and us-east-1b) for high availability and fault tolerance.
+
+Each Availability Zone has three subnets: Public, Private, and Protected.
+
+The Public subnet in each Availability Zone hosts a Network Address Translation (NAT) gateway, which allows resources in the Private subnet to access the internet while remaining private.
+
+The Internet gateway acts as the entry and exit point for internet traffic to and from the VPC.
+
+The User or client initiates a request, which enters the VPC through the Internet gateway.
+
+The request is then routed to the appropriate resource in the Public subnet, such as a load balancer or a web server.
+
+If the request needs to access resources in the Private subnet (e.g., application servers), it goes through the NAT gateway, which translates the private IP addresses to public IP addresses for internet communication.
+
+The Protected subnet is designed to host resources that require an additional layer of security, such as databases or sensitive data stores. Resources in this subnet cannot be accessed directly from the internet or the Public subnet, providing an extra level of isolation and protection.
+
+The architecture follows the principle of least privilege, where resources are segmented based on their security requirements and access needs, ensuring that only authorized components can communicate with each other.
+
+This architecture provides a secure, highly available, and scalable environment for deploying applications and services within the AWS cloud. It leverages multiple Availability Zones for fault tolerance, and the separation of subnets with different security levels ensures that sensitive resources are isolated and protected from unauthorized access.

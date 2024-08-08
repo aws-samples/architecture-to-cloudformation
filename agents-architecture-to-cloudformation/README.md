@@ -38,8 +38,8 @@ You can leave the parameters with default values. `infrastructure.yaml` stack wi
 
 |   Region   | development.yaml |
 | ---------- | ----------------- |
-| us-east-1  | [![launch-stack](https://s3.amazonaws.com/cloudformation-examples/cloudformation-launch-stack.png)](https://console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacks/new?stackName=ArchToCloudformation&templateURL=)|
-| us-west-2  | [![launch-stack](https://s3.amazonaws.com/cloudformation-examples/cloudformation-launch-stack.png)](https://console.aws.amazon.com/cloudformation/home?region=us-west-2#/stacks/new?stackName=ArchToCloudformation&templateURL=)|
+| us-east-1  | [![launch-stack](https://s3.amazonaws.com/cloudformation-examples/cloudformation-launch-stack.png)](https://console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacks/new?stackName=ArchToCloudformation&templateURL=https://ws-assets-prod-iad-r-iad-ed304a55c2ca1aee.s3.us-east-1.amazonaws.com/0a9f7588-a2c4-4484-b051-6658ce32605c/A2C/agents/development.yaml)|
+| us-west-2  | [![launch-stack](https://s3.amazonaws.com/cloudformation-examples/cloudformation-launch-stack.png)](https://console.aws.amazon.com/cloudformation/home?region=us-west-2#/stacks/new?stackName=ArchToCloudformation&templateURL=https://ws-assets-prod-iad-r-pdx-f3b3f9f1a7d6a3d0.s3.us-west-2.amazonaws.com/0a9f7588-a2c4-4484-b051-6658ce32605c/A2C/agents/development.yaml)|
 
 Make sure to provide values for following parameters:
 1. VPCId: VPC for provisioning required infrastructure. 

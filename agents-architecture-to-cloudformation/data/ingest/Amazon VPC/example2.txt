@@ -1,0 +1,23 @@
+This AWS architecture diagram depicts a highly available and scalable web application deployment across multiple Availability Zones within an AWS Region. Let me walk you through the components and their interactions:
+
+The architecture leverages an AWS Virtual Private Cloud (VPC), which provides a logically isolated network environment for the application resources.
+
+Within the VPC, there are two Availability Zones, each containing a public subnet and a private subnet.
+
+The public subnets host the NAT gateways, which enable instances in the private subnets to access the internet for software updates or other outbound traffic.
+
+The Application Load Balancer (ALB) is deployed in the public subnets and acts as the entry point for incoming traffic from the internet via the Internet Gateway.
+
+The Web Tier Instances, which likely host the application code, are deployed in Auto Scaling groups within the private subnets across both Availability Zones.
+
+The Auto Scaling groups ensure that the Web Tier Instances can automatically scale out or in based on the application's traffic demand, providing high availability and scalability.
+
+Incoming requests from clients or users are routed through the Internet Gateway to the Application Load Balancer.
+
+The Application Load Balancer distributes the incoming traffic across the healthy Web Tier Instances in the Auto Scaling groups, ensuring load balancing and fault tolerance.
+
+The Web Tier Instances process the requests and potentially interact with other components (e.g., databases, caching layers) to serve the application functionality.
+
+Responses from the Web Tier Instances are routed back through the Application Load Balancer and Internet Gateway to the clients or users.
+
+This architecture leverages multiple AWS services and follows best practices for high availability, scalability, and security by separating the web tier into private subnets and using load balancing and auto-scaling capabilities.

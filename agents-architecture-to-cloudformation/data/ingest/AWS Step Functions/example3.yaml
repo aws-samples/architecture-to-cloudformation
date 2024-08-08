@@ -1,0 +1,156 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  This CloudFormation stack sets up a serverless data processing pipeline using AWS Step Functions, AWS Lambda, and Amazon Bedrock.
+
+Parameters:
+
+  BucketName:
+    Type: String
+    Description: Name of the S3 bucket for input data
+
+  BucketPrefix:
+    Type: String
+    Description: Prefix of the S3 bucket for input data
+    Default: input
+
+    
+Resources:
+
+  CreatePromptLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub SummarizeData-${AWS::StackName}
+      Runtime: python3.12
+      Handler: index.lambda_handler
+      Role: !GetAtt CreatePromptRole.Arn
+      Code:
+        ZipFile: |
+          import boto3
+          import os
+
+          # Boto3 clients
+          s3 = boto3.client('s3')
+
+          def lambda_handler(event, context):
+            # Get transcript from event
+            s3_key = event["s3_key"]
+            bucket_name = event["bucket_name"]
+
+            s3_response = s3.get_object(Bucket=bucket_name, Key=s3_key)
+            
+            data = s3_response['Body'].read().decode('utf-8')
+            
+            # Prompt to summarize the transcript
+            return {
+                  "prompt": f"\n\nHuman:Summarize the transcript <transcript>{data}</transcript>\n\nAssistant:",
+                  "max_tokens_to_sample": 1000,
+                  "temperature": 0
+                }
+
+  CreatePromptRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: S3ReadAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 's3:GetObject'
+                Resource: !Sub 'arn:aws:s3:::${BucketName}/${BucketPrefix}/*'
+
+
+  # Step Functions State Machine
+  StateMachine:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      StateMachineName: !Sub StateMachine-${AWS::StackName}
+      DefinitionString:
+        !Sub
+          - |-
+            {
+              "Comment": "InvokeModel",
+              "StartAt": "CreatePrompt",
+              "States": {
+                "CreatePrompt": {
+                  "Type": "Task",
+                  "Resource": "arn:aws:states:::lambda:invoke",
+                  "OutputPath": "$.Payload",
+                  "Parameters": {
+                    "Payload.$": "$",
+                    "FunctionName": "${CreatePromptArn}"
+                  },
+                  "Next": "InvokeModel"
+                },
+                "InvokeModel": {
+                  "Type": "Task",
+                  "Resource": "arn:aws:states:::bedrock:invokeModel",
+                  "Parameters": {
+                    "ModelId": "arn:aws:bedrock:${AWS::Region}::foundation-model/anthropic.claude-v2:1",
+                    "Body": {
+                      "prompt.$": "$.prompt",
+                      "max_tokens_to_sample.$": "$.max_tokens_to_sample",
+                      "temperature.$": "$.temperature"
+                    }
+                  },
+                  "End": true
+                }
+              }
+            }
+          - {
+              CreatePromptArn: !GetAtt CreatePromptLambda.Arn,
+            }
+      RoleArn: !GetAtt StateMachineRole.Arn
+
+  # Step Functions Role
+  StateMachineRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: states.amazonaws.com
+            Action: 'sts:AssumeRole'
+      Policies:
+        - PolicyName: InvokeLambdaPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'lambda:InvokeFunction'
+                Resource:
+                  - !GetAtt CreatePromptLambda.Arn
+        - PolicyName: XRayAccessPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - xray:PutTraceSegments
+                  - xray:PutTelemetryRecords
+                  - xray:GetSamplingRules
+                  - xray:GetSamplingTargets
+                Resource:
+                  - "*"
+        - PolicyName: BedrockInvokePolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'bedrock:InvokeModel'
+                Resource:
+                  - !Sub "arn:aws:bedrock:${AWS::Region}::foundation-model/anthropic.claude-v2:1" 

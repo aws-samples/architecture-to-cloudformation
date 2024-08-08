@@ -1,0 +1,27 @@
+The architecture diagram depicts a serverless data processing pipeline on AWS. Here's a step-by-step explanation of the components and their interactions:
+
+Put Item: This component represents the entry point of the pipeline, where data or items are ingested into the system.
+
+DynamoDB: The ingested data is stored in an Amazon DynamoDB table, which is a fully managed NoSQL database service provided by AWS. DynamoDB is designed for low-latency read and write operations, making it suitable for handling high-throughput workloads.
+
+DynamoDB Stream: DynamoDB Stream is a feature that captures data modification events (inserts, updates, and deletes) in a DynamoDB table. It acts as a change data capture (CDC) mechanism, allowing applications to consume and process these events in real-time.
+
+Trigger: The DynamoDB Stream triggers a serverless function or an AWS Lambda function whenever new data is inserted or modified in the DynamoDB table.
+
+AWS Lambda: AWS Lambda is a serverless compute service that runs code in response to events or triggers, such as the DynamoDB Stream. In this architecture, the Lambda function is responsible for processing the data received from the DynamoDB Stream.
+
+CloudWatch Logs: AWS Lambda automatically integrates with Amazon CloudWatch Logs, which is a log management service. The Lambda function can write logs to CloudWatch Logs for monitoring, debugging, and auditing purposes.
+
+The flow of data and requests in this architecture is as follows:
+
+Data or items are ingested into the system through the "Put Item" component, which could be a user interface, an API, or another data source.
+
+The ingested data is stored in the DynamoDB table, which serves as the primary data store.
+
+Whenever data is inserted or modified in the DynamoDB table, the DynamoDB Stream captures these events and triggers the AWS Lambda function.
+
+The Lambda function processes the data received from the DynamoDB Stream. This processing could involve data transformation, enrichment, validation, or any other custom logic defined within the Lambda function.
+
+During the execution of the Lambda function, logs and monitoring data are automatically captured and stored in CloudWatch Logs for further analysis and troubleshooting.
+
+This serverless architecture leverages the scalability, fault tolerance, and event-driven nature of AWS services like DynamoDB, DynamoDB Stream, and Lambda. It allows for real-time data processing and can be easily extended or modified to accommodate additional components or functionality as needed.

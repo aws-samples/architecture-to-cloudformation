@@ -1,0 +1,98 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  This CloudFormation template provisions an AWS infrastructure consisting involving an AWS Lambda function and Amazon Bedrock.
+  When the Lambda function is invoked, it interacts with Amazon Bedrock.
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: EnironmentConfig
+        Parameters:
+          - ModelId
+          - Prompt
+
+Parameters:
+  ModelId:
+    Type: String
+    Description: The ID of the Bedrock model to use for the Lambda function
+    Default: anthropic.claude-3-sonnet-20240229-v1:0
+
+  Prompt:
+    Type: String
+    Description: The prompt to use for the Lambda function
+    Default: "Provide a concise summary of the following meeting transcript:"
+
+Resources:
+  LambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Runtime: python3.12
+      Handler: index.lambda_handler
+      Role: !GetAtt LambdaRole.Arn
+      Timeout: 300
+      Environment:
+        Variables:
+          ModelId: !Ref ModelId
+          Prompt: !Ref Prompt
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import os
+          bedrock = boto3.client('bedrock-runtime')
+          def get_response(prompt, modelId, temperature):
+              response = bedrock.invoke_model(
+                              modelId=modelId,
+                              body=json.dumps(
+                                  {
+                                      "anthropic_version": "bedrock-2023-05-31",
+                                      "max_tokens": 4096,
+                                      "temperature": temperature,
+                                      "messages": [
+                                          {
+                                              "role": "user",
+                                              "content": [{"type": "text", "text": prompt}],
+                                          }
+                                      ],
+                                  }
+                              ),
+                          )
+              result = json.loads(response.get("body").read())
+              response = result.get("content", [])[0]['text']
+              return response
+          def lambda_handler(event, context):
+              text = event["text"]
+              prompt = f"""
+                {os.environ['Prompt']}
+                {text}
+              """
+              response = get_response(prompt=prompt, modelId=os.environ['ModelId'],temperature=0)
+              return {
+                  "statusCode": 200,
+                  "body": json.dumps({"response": response})
+              }
+
+  LambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: BedrockInvokeModel
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeModel
+                Resource: !Sub arn:aws:bedrock:${AWS::Region}::foundation-model/${ModelId}

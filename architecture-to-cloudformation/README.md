@@ -1,4 +1,4 @@
-# <center> Architecture to AWS CloudFormation code using Anthropic Claude 3’s Vision Capabilities on Amazon Bedrock </center> 
+# <center> Architecture to AWS CloudFormation code using Anthropic Claude 3 model family's vision capabilities on Amazon Bedrock </center> 
 
 ## Architecture
 

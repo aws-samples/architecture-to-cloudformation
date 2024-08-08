@@ -1,0 +1,6 @@
+he architecture starts with the InvokeAgent() function, which triggers Agents for Amazon Bedrock. These agents interact with the OpenAPI Schema stored in Amazon S3 Artifacts and AWS Lambda function to complete actions. 
+Amazon Bedrock agent can perform the following actions:
+
+1. Get customer data from Customers DynamoDB table.
+2. Get latest interactions of a particular customer from Interactions DynamoDB table.
+3. Get or update open JIRA tasks using JIRA development API.

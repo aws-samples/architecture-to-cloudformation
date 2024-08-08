@@ -1,0 +1,288 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: This CloudFormation template sets up a Knowledge base for Amazon Bedrock. Knowledge base is also initialized with mock data.
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Environment Configuration
+        Parameters:
+          - EnvironmentName
+          - GitURL
+      - Label:
+          default: Knowledge base Configuration
+        Parameters:
+          - KnowledgeBaseServiceRoleArn
+          - AOSSCollectionArn
+          - EmbeddingBedrockModelId
+      - Label:
+          default: Logs Configuration
+        Parameters:
+          - LogsPolicyPolicyArn
+Parameters:
+  KnowledgeBaseServiceRoleArn:
+    Type: String
+    Description: The ARN of the knowledge base service role
+  
+  GitURL:
+    Type: String
+    Description: Initial repository for web application
+
+  LogsPolicyPolicyArn:
+    Description: Policy ARN for writing logs
+    Type: String
+    MinLength: 1
+  
+  AOSSCollectionArn:
+    Type: String
+    Description: The ARN of the AOSS collection
+
+  EnvironmentName:
+    Type: String
+    Description: The name of the environment
+
+  EmbeddingBedrockModelId:
+    Type: String
+    Default: "amazon.titan-embed-text-v1"
+Resources:
+  ###########################
+  ##### Knowledge Base #####
+  #########################
+
+  KnowledgeBase:
+    Type: AWS::Bedrock::KnowledgeBase
+    Properties:
+      Name: !Sub KnowledgeBase-A2C-${EnvironmentName}
+      Description: Knowledge base for storing CloudFormation template knowledge
+      RoleArn: !Ref KnowledgeBaseServiceRoleArn
+      KnowledgeBaseConfiguration:
+        Type: VECTOR
+        VectorKnowledgeBaseConfiguration:
+          EmbeddingModelArn: !Sub arn:aws:bedrock:${AWS::Region}::foundation-model/${EmbeddingBedrockModelId}
+      StorageConfiguration:
+        Type: OPENSEARCH_SERVERLESS
+        OpensearchServerlessConfiguration:
+          CollectionArn: !Ref AOSSCollectionArn
+          VectorIndexName: cfn-knowledge-index
+          FieldMapping:
+            VectorField: cfn-vector-field
+            TextField: text
+            MetadataField: metadata
+
+  DataSource:
+    Type: AWS::Bedrock::DataSource
+    Properties:
+      KnowledgeBaseId: !Ref KnowledgeBase
+      Name: !Sub DataSource-A2C-${EnvironmentName}
+      Description: DataSource for storing CloudFormation template
+      DataSourceConfiguration:
+        Type: S3
+        S3Configuration:
+          BucketArn: !Sub arn:aws:s3:::datasource${AWS::AccountId}-${EnvironmentName}
+          InclusionPrefixes:
+            - ingest/
+      VectorIngestionConfiguration:
+        ChunkingConfiguration:
+          ChunkingStrategy: NONE
+  
+  #####################################
+  #### CodeBuild Init DataSource #####
+  ###################################
+  
+  DataCodeBuildExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Join
+        - '-'
+        - - DataCodeBuildExecutionRole
+          - !Ref EnvironmentName
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - codebuild.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - !Ref LogsPolicyPolicyArn
+      Policies:
+        - PolicyName: SourceS3AccessPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:PutObjectAcl
+                  - s3:GetObject
+                Resource:
+                  - !Sub arn:aws:s3:::datasource${AWS::AccountId}-${EnvironmentName}/*
+        - PolicyName: IngestionPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock:StartIngestionJob
+                  - bedrock:GetIngestionJob
+                Resource:
+                  - !GetAtt KnowledgeBase.KnowledgeBaseArn
+
+  DataCodeBuild:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Join
+        - '-'
+        - - DataCodeBuild
+          - !Ref EnvironmentName
+      Description: CodeBuild for initializing S3 data source
+      Cache:
+        Location: LOCAL
+        Modes:
+          - LOCAL_SOURCE_CACHE
+          - LOCAL_DOCKER_LAYER_CACHE
+        Type: LOCAL
+      Source:
+        Type: GITHUB
+        Location: !Ref GitURL
+        BuildSpec: !Sub
+          - |
+            version: 0.2
+            phases:
+              pre_build:
+                commands:
+                  - pip3 install awscli
+              build:
+                commands:
+                  - echo Build started on `date`
+                  - cd agents-architecture-to-cloudformation/
+                  - python3 data/ingest/ingest.py ${DataBucket} ${KnowledgeBase} ${DataSourceId}
+              post_build:
+                commands:
+                  - echo Build completed on `date`
+          - DataBucket: !Sub datasource${AWS::AccountId}-${EnvironmentName}
+            DataSourceId: !GetAtt DataSource.DataSourceId
+      Environment:
+        Type: LINUX_CONTAINER
+        Image: aws/codebuild/amazonlinux2-x86_64-standard:5.0
+        ComputeType: BUILD_GENERAL1_SMALL
+      ServiceRole: !GetAtt DataCodeBuildExecutionRole.Arn
+      TimeoutInMinutes: 10
+      Artifacts:
+        Type: NO_ARTIFACTS
+
+  DataCodeBuildLogGroup:
+    DeletionPolicy: Retain
+    Type: AWS::Logs::LogGroup
+    Properties:
+      RetentionInDays: 7
+
+  #######################################
+  ##### Custom Resource Initialize #####
+  #####################################
+
+  DataBuildCustomResourceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Join
+        - '-'
+        - - DataBuildResourceRole
+          - !Ref EnvironmentName
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: /
+      ManagedPolicyArns:
+        - !Ref LogsPolicyPolicyArn
+      Policies:
+        - PolicyName: CodeBuildPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - codebuild:StartBuild
+                  - codebuild:BatchGetBuilds
+                Resource:
+                  - !GetAtt DataCodeBuild.Arn
+        - PolicyName: S3AccessPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:                  
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                  - s3:DeleteObject
+                  - s3:DeleteObjectVersion
+                  - s3:ListBucketVersions
+                Resource:
+                  - !Sub arn:aws:s3:::datasource${AWS::AccountId}-${EnvironmentName}/*
+                  - !Sub arn:aws:s3:::datasource${AWS::AccountId}-${EnvironmentName}
+
+  DataBuildCustomResourceFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Join
+        - '-'
+        - - DataBuildResourceF
+          - !Ref EnvironmentName
+      Handler: index.handler
+      Role: !GetAtt DataBuildCustomResourceRole.Arn
+      Timeout: 600
+      Runtime: python3.12
+      Code:
+        ZipFile: !Sub |
+          import boto3
+          from time import sleep
+          import cfnresponse
+          codebuild = boto3.client("codebuild")
+          def clean_bucket(event):
+            try:
+              bucket = boto3.resource("s3").Bucket(event['ResourceProperties']['DATABUCKET'])
+              bucket.object_versions.delete()
+              bucket.objects.all().delete()
+            except Exception as ex:
+              print(ex)
+          def start_codebuild(build_id):
+            status = 'STARTING'
+            while status not in ['SUCCEEDED', 'FAILED', 'STOPPED', 'FAULT', 'TIMED_OUT']:
+              status = codebuild.batch_get_builds(ids=[build_id])['builds'][0]['buildStatus']
+              sleep(15)
+            if status in ['FAILED', 'STOPPED', 'FAULT', 'TIMED_OUT']:
+              raise Exception("Build failed")
+            return
+          def handler(event, context):
+            try:
+              request_type = event['RequestType']
+              if request_type == 'Create':
+                start_codebuild(codebuild.start_build(projectName=event['ResourceProperties']['DATAPROJECT'])['build']['id'])
+              elif request_type == 'Delete':
+                clean_bucket(event)
+            except Exception as ex:
+              print(ex)
+              clean_bucket(event)
+              cfnresponse.send(event, context, cfnresponse.FAILED, {})
+            else:
+              cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+
+  DataBuildCustomResource:
+    DependsOn: KnowledgeBase
+    Type: Custom::BuildCode
+    Properties:
+      ServiceToken: !GetAtt DataBuildCustomResourceFunction.Arn
+      DATAPROJECT: !Ref DataCodeBuild
+      DATABUCKET: !Sub datasource${AWS::AccountId}-${EnvironmentName}
+
+Outputs:
+  KnowledgeBaseId:
+    Value: !Ref KnowledgeBase
+  KnowledgeBaseArn:
+    Value: !GetAtt KnowledgeBase.KnowledgeBaseArn

@@ -1,0 +1,17 @@
+The architecture diagram depicts a web application hosted on AWS using various services. Here's a step-by-step description of the components and their interactions:
+
+Users access the application through HTTPS (secure HTTP) protocol.
+
+Amazon CloudFront, AWS's content delivery network (CDN) service, acts as the entry point for user requests. CloudFront caches and serves static content from its global edge locations, improving performance and reducing latency for end-users.
+
+Dynamic requests are forwarded from CloudFront to an Application Load Balancer (ALB) using HTTP protocol.
+
+The ALB distributes incoming traffic across multiple targets, in this case, two Amazon Elastic Container Service (ECS) clusters running the Streamlit application.
+
+Each ECS cluster consists of one or more container instances running the Streamlit application. These instances are managed by the Fargate launch type, which is a serverless compute engine for ECS that provisions and scales the underlying compute resources automatically.
+
+The Auto Scaling component is responsible for dynamically adjusting the number of running ECS tasks (containers) based on the incoming traffic or predefined scaling policies. This ensures that the application can handle varying loads while optimizing resource utilization and costs.
+
+The Streamlit application running within the ECS containers processes the user requests and generates the appropriate responses, which are then sent back through the ALB, CloudFront, and ultimately delivered to the users.
+
+In summary, this architecture leverages AWS services like CloudFront, Application Load Balancer, ECS with Fargate, and Auto Scaling to provide a scalable, highly available, and secure web application deployment. CloudFront serves static content, while dynamic requests are routed through the ALB to the ECS clusters running the Streamlit application. Auto Scaling ensures that the application can handle varying traffic loads by automatically adjusting the number of running ECS tasks.

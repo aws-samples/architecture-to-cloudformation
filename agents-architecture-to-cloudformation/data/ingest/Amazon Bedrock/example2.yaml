@@ -1,0 +1,236 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: "CFN stack for creating an agent"
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: EnironmentConfig
+        Parameters:
+          - EnvironmentName
+      - Label:
+          default: Artifacts
+        Parameters:
+          - S3BucketWithArtifacts
+          - OpenAPISchemaPrefix
+          - LambdaCodePrefix
+          - LambdaPythonFileName
+      - Label:
+          default: AgentConfig
+        Parameters:
+          - AgentName
+          - AgentDescription
+          - AgentInstruction
+          - BedrockModelId
+          - AgentAliasName
+          - ActionGroupName
+
+Parameters:
+  AgentInstruction:
+    Type: String
+    Default: You are an IT agent who solves customer's problems
+    Description: Instruction for the Bedrock Agent
+    MinLength: 1
+
+  AgentDescription:
+    Type: String
+    Default: Agent for IT Support
+    Description: Description for the Bedrock Agent
+    MinLength: 1
+
+  S3BucketWithArtifacts:
+    Type: String
+    Description: S3 bucket with OpenAPI schema and Lambda function code
+    MinLength: 1
+    Default: eashan-blog
+  
+  OpenAPISchemaPrefix:
+    Type: String
+    Description: S3 Prefix for OpenAPI schema file
+    Default: agent/crm_schema.json
+    MinLength: 1
+
+  LambdaCodePrefix:
+    Type: String
+    Description: S3 Prefix for Lambda Code file
+    Default: agent/crm-bot-lambda.py.zip
+    MinLength: 1
+  
+  BedrockModelId:
+    Type: String
+    Default: anthropic.claude-3-sonnet-20240229-v1:0
+    Description: Amazon Bedrock Model ID for the agent
+    MinLength: 1
+  
+  EnvironmentName:
+    Description: Unique name to distinguish different web application min chars 1 and max chars 4
+    Type: String
+    Default: test
+    MinLength: 1
+    MaxLength: 4
+  
+  AgentAliasName:
+    Description: Agent Aliast name
+    Type: String
+    MinLength: 1
+    Default: ITAgentAlias
+  
+  AgentName:
+    Description: Agent Aliast name
+    Type: String
+    Default: ITAgent
+    MinLength: 1
+
+  ActionGroupName:
+    Description: Action Group name
+    Type: String
+    Default: ITActionGroup
+    MinLength: 1
+  
+  LambdaPythonFileName:
+    Description: Lambda function handler name
+    Type: String
+    Default: index.lambda_handler
+    MinLength: 1
+
+Resources:
+  AgentResource:
+    Type: AWS::Bedrock::Agent
+    Properties:
+      AgentName: !Ref AgentName
+      AgentResourceRoleArn: !GetAtt AgentRole.Arn
+      FoundationModel: !Ref BedrockModelId
+      Instruction: !Ref AgentInstruction
+      Description: !Ref AgentDescription
+      ActionGroups:
+        - ActionGroupName: !Ref ActionGroupName
+          ActionGroupExecutor: 
+            Lambda: !GetAtt AgentLambdaFunction.Arn
+          ApiSchema:
+            S3:
+              S3BucketName: !Ref S3BucketWithArtifacts
+              S3ObjectKey: !Ref OpenAPISchemaPrefix
+  
+  AgentAliasResource:
+    Type: AWS::Bedrock::AgentAlias
+    Properties:
+      AgentId: !GetAtt AgentResource.AgentId
+      AgentAliasName: !Ref AgentAliasName
+
+  AgentRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub AmazonBedrockExecutionRoleForAgents_${EnvironmentName}
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - bedrock.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: BedrockInvokeModel
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeModel
+                Resource: !Sub arn:aws:bedrock:${AWS::Region}::foundation-model/${BedrockModelId}
+        - PolicyName: S3Access
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource: !Sub arn:aws:s3:::${S3BucketWithArtifacts}/${OpenAPISchemaPrefix}
+
+  AgentLambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Runtime: python3.12
+      FunctionName: !Sub agent-action-${EnvironmentName}
+      Handler: !Ref LambdaPythonFileName
+      Role: !GetAtt AgentLambdaRole.Arn
+      Timeout: 300
+      Code:
+        S3Bucket: !Ref S3BucketWithArtifacts
+        S3Key: !Ref LambdaCodePrefix
+
+  AgentLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoGetPolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:Query
+                Resource:
+                  - !GetAtt CustomerTable.Arn
+                  - !GetAtt InteractionsTable.Arn
+
+  AgentLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt AgentLambdaFunction.Arn
+      Principal: bedrock.amazonaws.com
+
+  CustomerTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub customer-${EnvironmentName}
+      BillingMode: PROVISIONED
+      AttributeDefinitions:
+        - AttributeName: customer_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: customer_id
+          KeyType: HASH
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+
+  InteractionsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub interactions-${EnvironmentName}
+      BillingMode: PROVISIONED
+      AttributeDefinitions:
+        - AttributeName: customer_id
+          AttributeType: S
+        - AttributeName: date
+          AttributeType: S
+      KeySchema:
+        - AttributeName: customer_id
+          KeyType: HASH
+        - AttributeName: date
+          KeyType: RANGE
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true

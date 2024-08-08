@@ -1,0 +1,19 @@
+The provided diagram illustrates an AWS architecture that utilizes AWS Step Functions and AWS Lambda functions to execute a parallel state machine. Here's a step-by-step description of the components and their interactions:
+
+The process begins with the execution of an AWS Step Functions State Machine.
+
+The State Machine initiates a "Parallel" state, which triggers two separate Lambda functions concurrently: "summarize_data" and "action_item_data".
+
+The "summarize_data" Lambda function is invoked to perform data summarization tasks.
+
+Simultaneously, the "action_item_data" Lambda function is invoked to process action item data.
+
+After the parallel execution of the two Lambda functions, the State Machine invokes another Lambda function called "checkpoint_data".
+
+The "checkpoint_data" Lambda function likely performs some data processing or validation tasks. The output of this function is shown as "Item = $, Timestamp: '3'", which suggests that it may be processing or generating data related to an item and a timestamp.
+
+The processed data from the "checkpoint_data" Lambda function is then stored or persisted in a DynamoDB database.
+
+Finally, the State Machine reaches the "End" state, indicating the completion of the parallel execution and data processing workflow.
+
+It's important to note that while the diagram provides an overview of the architecture, it does not reveal specific details about the data being processed or the exact functionality of each Lambda function. However, it clearly demonstrates the use of AWS Step Functions to orchestrate parallel execution of Lambda functions and the integration with DynamoDB for data storage or retrieval.

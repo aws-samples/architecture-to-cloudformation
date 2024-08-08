@@ -1,0 +1,51 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: This CloudFormation template sets up parameters in SSM parameter store. 
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Description: The name of the environment
+    MinLength: 1
+    MaxLength: 4
+  
+  AgentId:
+    Type: String
+    Description: The id of the agent
+  
+  AgentAliasId:
+    Type: String
+    Description: The id of the agent alias
+
+  KnowledgeBaseId:
+    Type: String
+    Description: The id of the knowledge base
+
+
+Resources:
+  ########################################
+  ##### Parameters for StreamlitApp #####
+  ######################################
+
+  AgentIdSSMParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub /streamlitapp/${EnvironmentName}/AGENT_ID
+      Type: String
+      Value: !Ref AgentId
+      Description: !Sub SSM parameter for AgentId for ATC ${EnvironmentName}
+
+  AgentAliasIdSSMParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub /streamlitapp/${EnvironmentName}/AGENT_ALIAS_ID
+      Type: String
+      Value: !Ref AgentAliasId
+      Description: !Sub SSM parameter for AgentAliasId for ATC ${EnvironmentName}
+
+  KnowledgeBaseIdSSMParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub /streamlitapp/${EnvironmentName}/KNOWLEDGEBASEID
+      Type: String
+      Value: !Ref KnowledgeBaseId
+      Description: !Sub SSM parameter for KnowledgeBaseId for ATC ${EnvironmentName}
