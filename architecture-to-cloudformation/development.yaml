@@ -443,10 +443,10 @@ Resources:
     Type: AWS::EC2::SecurityGroupEgress
     Properties:
       GroupId: !GetAtt StreamlitContainerSecurityGroup.GroupId
-      IpProtocol: tcp
+      IpProtocol: -1
       FromPort: !Ref ContainerPort
       ToPort: !Ref ContainerPort
-      DestinationSecurityGroupId: !Ref StreamlitALBSecurityGroup
+      CidrIp: 0.0.0.0/0
       Description: !Sub Allow ${ContainerPort} port outbound for all traffic
 
   ContainerSGInBoundRule:

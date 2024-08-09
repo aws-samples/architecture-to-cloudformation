@@ -4,7 +4,7 @@ Description: >
   It provisions a DynamoDB table with a stream for capturing data changes.
   A Lambda function is triggered by the DynamoDB stream to process new and modified items.
   The stack also includes an IAM role, CloudWatch log group, and output values for the resources.
-
+  This template is not production ready and should only be used for inspiration.
 Metadata:
   'AWS::CloudFormation::Interface':
     ParameterGroups:
