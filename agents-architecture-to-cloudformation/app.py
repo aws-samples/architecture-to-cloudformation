@@ -175,6 +175,7 @@ if "user_edit_done" in st.session_state and "explain" in st.session_state:
                             else:
                                 st.code(trace["content"])
                                 
+                                
                     if index == len(st.session_state["chat_history"]) - 1:
 
                         # with col1:

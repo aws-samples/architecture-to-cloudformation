@@ -1,8 +1,8 @@
-# Output [Sample2.jpg](/agents-architecture-to-cloudformation/data/samples/sample2.jpg)
+# Output [Sample2.jpg](/agents-architecture-to-cloudformation/data/samples/sample2.png)
 
 Let's generate AWS CloudFormation templates for the sample architecture diagram below.
 
-![sample2.jpg](/agents-architecture-to-cloudformation/data/samples/sample2.jpg)
+![sample2.jpg](/agents-architecture-to-cloudformation/data/samples/sample2.png)
 
 Uploading the architecture diagram to the web application generates a step-by-step explanation of the architecture diagram using Anthropic Claude 3 Sonnet vision capabilities. 
 

@@ -1,6 +1,6 @@
-# Output [Sample3.jpg](/agents-architecture-to-cloudformation/data/samples/sample3.jpg)
+# Output [Sample3.jpg](/agents-architecture-to-cloudformation/data/samples/sample3.png)
 
-![sample3.jpg](/agents-architecture-to-cloudformation/data/samples/sample3.jpg)
+![sample3.jpg](/agents-architecture-to-cloudformation/data/samples/sample3.png)
 
 The process of uploading the aforementioned diagram generates an incomplete set of step-by-step instructions. Enhance the step-by-step explanation by replacing it with the following text:
 
