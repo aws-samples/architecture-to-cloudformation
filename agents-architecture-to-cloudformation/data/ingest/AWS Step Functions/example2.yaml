@@ -3,7 +3,7 @@ Description: >
   This CloudFormation stack sets up a serverless data processing pipeline using AWS Step Functions and AWS Lambda.
   It executes a parallel state machine that invokes Lambda functions to summarize data and generate action items.
   The processed data is stored in an S3 bucket and a DynamoDB table.
-
+  This template is not production ready and should only be used for inspiration.
 Parameters:
 
   BucketName:

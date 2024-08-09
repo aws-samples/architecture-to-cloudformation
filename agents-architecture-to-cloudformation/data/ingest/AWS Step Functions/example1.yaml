@@ -4,7 +4,7 @@ Description: >
   It uses EventBridge to trigger a Step Functions workflow when data is uploaded to an S3 bucket. 
   The workflow invokes Lambda functions to clean the data, summarize it, and generate action items using the Anthropic Claude model. 
   The processed data is stored in another S3 bucket.
-
+  This template is not production ready and should only be used for inspiration.
 Resources:
   LoggingBucket: 
     Type: "AWS::S3::Bucket"

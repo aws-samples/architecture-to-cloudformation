@@ -1,0 +1,320 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  This template creates a serverless data processing pipeline using EventBridge, Lambda, S3, DynamoDB, and SNS.
+  It schedules a daily event to trigger a Lambda function that reads data from S3, processes it, and stores it in another S3 bucket.
+  Another Lambda function is triggered by the S3 event to process the data and store it in DynamoDB.
+  DynamoDB Streams captures new items and triggers an SNS topic to send an email notification.
+  This template is not production ready and should only be used for inspiration.
+
+Parameters:
+  S3BucketNameA:
+    Type: String
+    Description: Name of the S3 bucket for input data
+    MinLength: 1
+    MaxLength: 63
+    AllowedPattern: ^[a-z0-9][a-z0-9-]*[a-z0-9]$
+
+  S3BucketNameB:
+    Type: String
+    Description: Name of the S3 bucket for processed data
+    MinLength: 1
+    MaxLength: 63
+    AllowedPattern: ^[a-z0-9][a-z0-9-]*[a-z0-9]$
+
+  DynamoDBTableName:
+    Type: String
+    Description: Name of the DynamoDB table
+    MinLength: 1
+    MaxLength: 255
+
+  EmailAddress:
+    Type: String
+    Description: Email address to receive notifications
+    MinLength: 1
+
+Resources:
+
+  EventBridgeSchedule:
+    Type: AWS::Events::Rule
+    Properties:
+      ScheduleExpression: 'cron(0 3 ? * * *)'
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt LambdaFunctionA.Arn
+          Id: LambdaFunctionA
+
+  LambdaFunctionA:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: DataProcessingFunctionA
+      Runtime: python3.12
+      Handler: index.lambda_handler
+      Role: !GetAtt LambdaRoleA.Arn
+      Code:
+        ZipFile: |
+          import boto3
+          import os
+
+          def lambda_handler(event, context):
+              s3 = boto3.client('s3')
+              s3_bucket_name_a = os.environ['S3_BUCKET_NAME_A']
+              s3_bucket_name_b = os.environ['S3_BUCKET_NAME_B']
+
+              s3.download_file(s3_bucket_name_a, 'data.txt', '/tmp/data.txt')
+
+              with open('/tmp/data.txt', 'r') as f:
+                  data = f.read()
+              modified_data = data.upper()
+
+              s3.upload_file('/tmp/modified.txt', s3_bucket_name_b, 'modified.txt')
+
+              return {
+                  'statusCode': 200,
+                  'body': 'Data processing completed successfully'
+              }
+      Environment:
+        Variables:
+          S3_BUCKET_NAME_A: !Ref S3BucketNameA
+          S3_BUCKET_NAME_B: !Ref S3BucketNameB
+
+  LambdaRoleA:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: S3Access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 's3:GetObject'
+                Resource: !Join ['', ['arn:aws:s3:::', !Ref S3BucketNameA, '/*']]
+              - Effect: Allow
+                Action:
+                  - 's3:PutObject'
+                Resource: !Join ['', ['arn:aws:s3:::', !Ref S3BucketNameB, '/*']]
+
+  S3BucketA:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Join ['-', [!Ref S3BucketNameA, !Ref 'AWS::AccountId']]
+      VersioningConfiguration:
+        Status: Enabled
+
+  S3BucketB:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Join ['-', [!Ref S3BucketNameB, !Ref 'AWS::AccountId']]
+      VersioningConfiguration:
+        Status: Enabled
+      NotificationConfiguration:
+        LambdaConfigurations:
+          - Event: 's3:ObjectCreated:*'
+            Function: !GetAtt LambdaFunctionB.Arn
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: suffix
+                    Value: .txt
+
+  LambdaFunctionBPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: 'lambda:InvokeFunction'
+      FunctionName: !GetAtt LambdaFunctionB.Arn
+      Principal: s3.amazonaws.com
+      SourceArn: !Join ['', ['arn:aws:s3:::', !Join ['-', [!Ref S3BucketNameB, !Ref 'AWS::AccountId']]]]
+
+  LambdaFunctionB:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: DataProcessingFunctionB
+      Runtime: python3.12
+      Handler: index.lambda_handler
+      Role: !GetAtt LambdaRoleB.Arn
+      Code:
+        ZipFile: |
+          import boto3
+          import json
+          import os
+
+          def lambda_handler(event, context):
+              dynamodb = boto3.resource('dynamodb')
+              table_name = os.environ['DYNAMODB_TABLE_NAME']
+              table = dynamodb.Table(table_name)
+
+              for record in event['Records']:
+                  bucket = record['s3']['bucket']['name']
+                  key = record['s3']['object']['key']
+                  metadata = record['s3']['object']
+
+                  table.put_item(Item={
+                      'ObjectKey': key,
+                      'Metadata': metadata
+                  })
+
+              return {
+                  'statusCode': 200,
+                  'body': 'Data processing completed successfully'
+              }
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: !Ref DynamoDBTableName
+
+  LambdaRoleB:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'dynamodb:PutItem'
+                Resource: !GetAtt DynamoDBTable.Arn
+
+  DynamoDBTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Ref DynamoDBTableName
+      BillingMode: PROVISIONED
+      AttributeDefinitions:
+        - AttributeName: ObjectKey
+          AttributeType: S
+      KeySchema:
+        - AttributeName: ObjectKey
+          KeyType: HASH
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5
+      StreamSpecification:
+        StreamViewType: NEW_IMAGE
+
+  DynamoDBStream:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      EventSourceArn: !GetAtt DynamoDBTable.StreamArn
+      FunctionName: !GetAtt LambdaFunctionC.Arn
+      StartingPosition: LATEST
+      BatchSize: 1
+
+  LambdaFunctionC:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: NotificationFunction
+      Runtime: python3.12
+      Handler: index.lambda_handler
+      Role: !GetAtt LambdaRoleC.Arn
+      Code:
+        ZipFile: |
+          import boto3
+          import os
+
+          def lambda_handler(event, context):
+              sns = boto3.client('sns')
+              topic_arn = os.environ['SNS_TOPIC_ARN']
+
+              for record in event['Records']:
+                  if record['eventName'] == 'INSERT':
+                      new_item = record['dynamodb']['NewImage']
+                      item_id = new_item['ObjectKey']['S']
+                      message = f"New item inserted: {item_id}"
+
+                      sns.publish(
+                          TopicArn=topic_arn,
+                          Message=message,
+                          Subject='Data Processing Notification'
+                      )
+
+              return {
+                  'statusCode': 200,
+                  'body': 'Notification sent successfully'
+              }
+      Environment:
+        Variables:
+          SNS_TOPIC_ARN: !Ref SNSTopic
+
+  LambdaRoleC:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: SNSPublishAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'sns:Publish'
+                Resource: !Ref SNSTopic
+        - PolicyName: DynamoDBStreamAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'dynamodb:GetRecords'
+                  - 'dynamodb:GetShardIterator'
+                  - 'dynamodb:DescribeStream'
+                  - 'dynamodb:ListStreams'
+                Resource: !GetAtt DynamoDBTable.StreamArn
+  SNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: DataProcessingTopic
+      Subscription:
+        - Endpoint: !Ref EmailAddress
+          Protocol: email
+
+Outputs:
+
+  S3BucketNameA:
+    Description: Name of the S3 bucket for input data
+    Value: !Ref S3BucketA
+    Export:
+      Name: !Sub '${AWS::StackName}-S3BucketNameA'
+
+  S3BucketNameB:
+    Description: Name of the S3 bucket for processed data
+    Value: !Ref S3BucketB
+    Export:
+      Name: !Sub '${AWS::StackName}-S3BucketNameB'
+
+  DynamoDBTableName:
+    Description: Name of the DynamoDB table
+    Value: !Ref DynamoDBTable
+    Export:
+      Name: !Sub '${AWS::StackName}-DynamoDBTableName'
+
+  SNSTopicArn:
+    Description: ARN of the SNS topic for notifications
+    Value: !Ref SNSTopic
+    Export:
+      Name: !Sub '${AWS::StackName}-SNSTopicArn'

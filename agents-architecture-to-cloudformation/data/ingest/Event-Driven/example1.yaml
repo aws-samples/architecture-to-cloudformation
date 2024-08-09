@@ -3,7 +3,7 @@ Description: >
   This stack creates a serverless architecture on AWS for processing object uploads.
   The architecture includes an AWS Lambda function, and an Amazon DynamoDB table.
   When an object is uploaded to the S3 bucket (provided by user), it triggers the Lambda function, which saves the uploaded object's metadata in the DynamoDB table.
-
+  This template is not production ready and should only be used for inspiration.
 Metadata:
   'AWS::CloudFormation::Interface':
     ParameterGroups:

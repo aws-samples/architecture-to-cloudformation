@@ -1,24 +1,26 @@
-AWSTemplateFormatVersion: 2010-09-09
-Description: 
-  CFN stack for creating an agent.
-  This template is not production ready and should only be used for inspiration.
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  This template sets up an Amazon Bedrock agent with an AWS Lambda function for
+  actions, an Amazon S3 bucket for storing artifacts, and an Amazon SNS topic
+  for notifications. This template is not production ready and should only be
+  used for inspiration.
 
 Metadata:
-  AWS::CloudFormation::Interface:
+  'AWS::CloudFormation::Interface':
     ParameterGroups:
       - Label:
-          default: EnironmentConfig
+          default: 'Environment Configuration'
         Parameters:
           - EnvironmentName
       - Label:
-          default: Artifacts
+          default: 'Artifacts'
         Parameters:
           - S3BucketWithArtifacts
           - OpenAPISchemaPrefix
           - LambdaCodePrefix
           - LambdaPythonFileName
       - Label:
-          default: AgentConfig
+          default: 'Agent Configuration'
         Parameters:
           - AgentName
           - AgentDescription
@@ -26,74 +28,83 @@ Metadata:
           - BedrockModelId
           - AgentAliasName
           - ActionGroupName
+      - Label:
+          default: 'Notification Configuration'
+        Parameters:
+          - EmailAddress
 
 Parameters:
-  AgentInstruction:
+  EnvironmentName:
+    Description: Unique name to distinguish different environments
     Type: String
-    Default: You are an IT agent who solves customer's problems
-    Description: Instruction for the Bedrock Agent
+    Default: test
     MinLength: 1
-
-  AgentDescription:
-    Type: String
-    Default: Agent for IT Support
-    Description: Description for the Bedrock Agent
-    MinLength: 1
+    MaxLength: 4
 
   S3BucketWithArtifacts:
     Type: String
     Description: S3 bucket with OpenAPI schema and Lambda function code
     MinLength: 1
-    Default: eashan-blog
-  
+    Default: my-artifacts-bucket
+
   OpenAPISchemaPrefix:
     Type: String
     Description: S3 Prefix for OpenAPI schema file
-    Default: agent/crm_schema.json
+    Default: agent/schema.json
     MinLength: 1
 
   LambdaCodePrefix:
     Type: String
     Description: S3 Prefix for Lambda Code file
-    Default: agent/crm-bot-lambda.py.zip
-    MinLength: 1
-  
-  BedrockModelId:
-    Type: String
-    Default: anthropic.claude-3-sonnet-20240229-v1:0
-    Description: Amazon Bedrock Model ID for the agent
-    MinLength: 1
-  
-  EnvironmentName:
-    Description: Unique name to distinguish different web application min chars 1 and max chars 4
-    Type: String
-    Default: test
-    MinLength: 1
-    MaxLength: 4
-  
-  AgentAliasName:
-    Description: Agent Aliast name
-    Type: String
-    MinLength: 1
-    Default: ITAgentAlias
-  
-  AgentName:
-    Description: Agent Aliast name
-    Type: String
-    Default: ITAgent
+    Default: agent/lambda.zip
     MinLength: 1
 
-  ActionGroupName:
-    Description: Action Group name
-    Type: String
-    Default: ITActionGroup
-    MinLength: 1
-  
   LambdaPythonFileName:
     Description: Lambda function handler name
     Type: String
     Default: index.lambda_handler
     MinLength: 1
+
+  AgentName:
+    Description: Agent name
+    Type: String
+    Default: MyAgent
+    MinLength: 1
+
+  AgentDescription:
+    Type: String
+    Default: My Bedrock Agent
+    Description: Description for the Bedrock Agent
+    MinLength: 1
+
+  AgentInstruction:
+    Type: String
+    Default: You are a helpful assistant
+    Description: Instruction for the Bedrock Agent
+    MinLength: 1
+
+  BedrockModelId:
+    Type: String
+    Default: anthropic.claude-3-sonnet-20240229-v1:0
+    Description: Amazon Bedrock Model ID for the agent
+    MinLength: 1
+
+  AgentAliasName:
+    Description: Agent Alias name
+    Type: String
+    MinLength: 1
+    Default: MyAgentAlias
+
+  ActionGroupName:
+    Description: Action Group name
+    Type: String
+    Default: MyActionGroup
+    MinLength: 1
+
+  EmailAddress:
+    Type: String
+    Description: Email address to receive notifications
+    AllowedPattern: ^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$
 
 Resources:
   AgentResource:
@@ -106,13 +117,13 @@ Resources:
       Description: !Ref AgentDescription
       ActionGroups:
         - ActionGroupName: !Ref ActionGroupName
-          ActionGroupExecutor: 
+          ActionGroupExecutor:
             Lambda: !GetAtt AgentLambdaFunction.Arn
           ApiSchema:
             S3:
               S3BucketName: !Ref S3BucketWithArtifacts
               S3ObjectKey: !Ref OpenAPISchemaPrefix
-  
+
   AgentAliasResource:
     Type: AWS::Bedrock::AgentAlias
     Properties:
@@ -177,17 +188,14 @@ Resources:
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
       Policies:
-        - PolicyName: DynamoGetPolicy
+        - PolicyName: SNSPublishPolicy
           PolicyDocument:
             Version: 2012-10-17
             Statement:
               - Effect: Allow
                 Action:
-                  - dynamodb:GetItem
-                  - dynamodb:Query
-                Resource:
-                  - !GetAtt CustomerTable.Arn
-                  - !GetAtt InteractionsTable.Arn
+                  - 'sns:Publish'
+                Resource: !Ref SNSTopic
 
   AgentLambdaPermission:
     Type: AWS::Lambda::Permission
@@ -196,43 +204,26 @@ Resources:
       FunctionName: !GetAtt AgentLambdaFunction.Arn
       Principal: bedrock.amazonaws.com
 
-  CustomerTable:
-    Type: AWS::DynamoDB::Table
+  SNSTopic:
+    Type: AWS::SNS::Topic
     Properties:
-      TableName: !Sub customer-${EnvironmentName}
-      BillingMode: PROVISIONED
-      AttributeDefinitions:
-        - AttributeName: customer_id
-          AttributeType: S
-      KeySchema:
-        - AttributeName: customer_id
-          KeyType: HASH
-      ProvisionedThroughput:
-        ReadCapacityUnits: 5
-        WriteCapacityUnits: 5
-      PointInTimeRecoverySpecification:
-        PointInTimeRecoveryEnabled: true
-      SSESpecification:
-        SSEEnabled: true
+      Subscription:
+        - Endpoint: !Ref EmailAddress
+          Protocol: email
 
-  InteractionsTable:
-    Type: AWS::DynamoDB::Table
-    Properties:
-      TableName: !Sub interactions-${EnvironmentName}
-      BillingMode: PROVISIONED
-      AttributeDefinitions:
-        - AttributeName: customer_id
-          AttributeType: S
-        - AttributeName: date
-          AttributeType: S
-      KeySchema:
-        - AttributeName: customer_id
-          KeyType: HASH
-        - AttributeName: date
-          KeyType: RANGE
-      ProvisionedThroughput:
-        ReadCapacityUnits: 5
-      PointInTimeRecoverySpecification:
-        PointInTimeRecoveryEnabled: true
-      SSESpecification:
-        SSEEnabled: true
+Outputs:
+  AgentId:
+    Description: ID of the Bedrock Agent
+    Value: !GetAtt AgentResource.AgentId
+
+  AgentAliasName:
+    Description: Name of the Bedrock Agent Alias
+    Value: !Ref AgentAliasName
+
+  LambdaFunctionArn:
+    Description: ARN of the Lambda function
+    Value: !GetAtt AgentLambdaFunction.Arn
+
+  SNSTopicArn:
+    Description: ARN of the SNS topic for notifications
+    Value: !Ref SNSTopic

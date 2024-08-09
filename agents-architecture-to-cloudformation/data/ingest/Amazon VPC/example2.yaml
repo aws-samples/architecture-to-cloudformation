@@ -5,6 +5,7 @@ Description:
   2. An internet gateway, with a default route on the public subnets.
   3. Pair of NAT gateways (one in each AZ),and default routes for them in the private subnets.
   4. An ALB, ALB security group, target groups, listeners and listener rules
+  This template is not production ready and should only be used for inspiration.
 Parameters:
   WebTierAMI:
     Type: String

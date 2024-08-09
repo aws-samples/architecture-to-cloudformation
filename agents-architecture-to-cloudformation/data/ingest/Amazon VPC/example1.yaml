@@ -7,6 +7,8 @@ Description: >
   - An Internet Gateway and two NAT Gateways for internet connectivity
   - Security groups and routing tables for secure network communication
 
+  This template is not production ready and should only be used for inspiration.
+
 Metadata:
     'AWS::CloudFormation::Interface':
         ParameterGroups:

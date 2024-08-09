@@ -1,7 +1,7 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >
   This CloudFormation stack sets up a serverless data processing pipeline using AWS Step Functions, AWS Lambda, and Amazon Bedrock.
-
+  This template is not production ready and should only be used for inspiration.
 Parameters:
 
   BucketName:

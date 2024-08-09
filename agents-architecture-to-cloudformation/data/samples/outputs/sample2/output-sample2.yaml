@@ -1,0 +1,249 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: >
+  This CloudFormation template deploys a highly available and scalable web application architecture within an Amazon Virtual Private Cloud (VPC). 
+  It includes an Application Load Balancer, Auto Scaling group, App Tier Instances, Amazon Aurora Primary database, private and protected subnets, and security groups. 
+  This template is not production ready and should only be used for inspiration.
+
+Parameters:
+  VpcCIDR:
+    Description: Please enter the IP range (CIDR notation) for the VPC
+    Type: String
+    Default: 10.0.0.0/16
+
+  PrivateSubnetACIDR:
+    Description: Please enter the IP range (CIDR notation) for the private subnet in the first Availability Zone
+    Type: String
+    Default: 10.0.2.0/24
+
+  PrivateSubnetBCIDR:
+    Description: Please enter the IP range (CIDR notation) for the private subnet in the second Availability Zone
+    Type: String
+    Default: 10.0.3.0/24
+
+  ProtectedSubnetACIDR:
+    Description: Please enter the IP range (CIDR notation) for the protected subnet in the first Availability Zone
+    Type: String
+    Default: 10.0.6.0/24
+
+  ProtectedSubnetBCIDR:
+    Description: Please enter the IP range (CIDR notation) for the protected subnet in the second Availability Zone
+    Type: String
+    Default: 10.0.7.0/24
+
+  AppTierAMI:
+    Description: The AMI ID for the App Tier Instances
+    Type: AWS::EC2::Image::Id
+
+  DBEngine:
+    Description: The database engine for Amazon Aurora
+    Type: String
+    Default: aurora-mysql
+
+  DBEngineVersion:
+    Description: The database engine version for Amazon Aurora
+    Type: String
+    Default: 5.7.12
+
+  DBInstanceClass:
+    Description: The instance class for Amazon Aurora
+    Type: String
+    Default: db.t3.small
+
+  DBUsername:
+    Description: The master username for the Amazon Aurora Primary database
+    Type: String
+
+  DBPassword:
+    Description: The master password for the Amazon Aurora Primary database
+    Type: String
+    NoEcho: true
+
+Resources:
+  # VPC
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCIDR
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-VPC'
+
+  # Private Subnets
+  PrivateSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [0, !GetAZs '']
+      CidrBlock: !Ref PrivateSubnetACIDR
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-PrivateSubnetA'
+
+  PrivateSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [1, !GetAZs '']
+      CidrBlock: !Ref PrivateSubnetBCIDR
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-PrivateSubnetB'
+
+  # Protected Subnets
+  ProtectedSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [0, !GetAZs '']
+      CidrBlock: !Ref ProtectedSubnetACIDR
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-ProtectedSubnetA'
+
+  ProtectedSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [1, !GetAZs '']
+      CidrBlock: !Ref ProtectedSubnetBCIDR
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-ProtectedSubnetB'
+
+  # Security Groups
+  AppTierSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for App Tier Instances
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          SourceSecurityGroupId: !Ref ALBSecurityGroup
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-AppTierSecurityGroup'
+
+  DBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for Amazon Aurora Primary
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          SourceSecurityGroupId: !Ref AppTierSecurityGroup
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-DBSecurityGroup'
+
+  ALBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for Application Load Balancer
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-ALBSecurityGroup'
+
+  # Amazon Aurora Primary
+  AuroraPrimaryCluster:
+    Type: AWS::RDS::DBCluster
+    Properties:
+      Engine: !Ref DBEngine
+      EngineVersion: !Ref DBEngineVersion
+      DBSubnetGroupName: !Ref ProtectedSubnetGroup
+      VpcSecurityGroupIds:
+        - !Ref DBSecurityGroup
+      MasterUsername: !Ref DBUsername
+      MasterUserPassword: !Ref DBPassword
+
+  ProtectedSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Subnet group for Amazon Aurora Primary
+      SubnetIds:
+        - !Ref ProtectedSubnetA
+        - !Ref ProtectedSubnetB
+
+  # Application Load Balancer
+  ApplicationLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Scheme: internet-facing
+      SecurityGroups:
+        - !Ref ALBSecurityGroup
+      Subnets:
+        - !Ref PrivateSubnetA
+        - !Ref PrivateSubnetB
+
+  ALBListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref ALBTargetGroup
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+      Port: 80
+      Protocol: HTTP
+
+  ALBTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckPath: /
+      Name: !Sub '${AWS::StackName}-ALBTargetGroup'
+      Port: 80
+      Protocol: HTTP
+      TargetType: instance
+      VpcId: !Ref VPC
+
+  # Auto Scaling Group
+  AppTierLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateData:
+        ImageId: !Ref AppTierAMI
+        InstanceType: t3.micro
+        SecurityGroupIds:
+          - !Ref AppTierSecurityGroup
+
+  AppTierAutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      DesiredCapacity: 2
+      MaxSize: 4
+      MinSize: 2
+      LaunchTemplate:
+        LaunchTemplateId: !Ref AppTierLaunchTemplate
+        Version: !GetAtt AppTierLaunchTemplate.LatestVersionNumber
+      TargetGroupARNs:
+        - !Ref ALBTargetGroup
+      VPCZoneIdentifier:
+        - !Ref PrivateSubnetA
+        - !Ref PrivateSubnetB
+
+Outputs:
+  VPC:
+    Description: The VPC ID
+    Value: !Ref VPC
+
+  ALBDNSName:
+    Description: The DNS name of the Application Load Balancer
+    Value: !GetAtt ApplicationLoadBalancer.DNSName
+
+  AuroraEndpoint:
+    Description: The endpoint for the Amazon Aurora Primary database
+    Value: !GetAtt AuroraPrimaryCluster.Endpoint.Address

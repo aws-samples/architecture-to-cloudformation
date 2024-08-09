@@ -49,7 +49,7 @@ Make sure to provide values for following parameters:
 5. PrivateSubnetBId: Private subnet B with route to NAT gateway. ECS tasks will be provisioned in private subnet. 
 6. EnvironmentName: Unique name to distinguish application in the same AWS account (min length 1 and max length 4); you can try `dev`, `test` or `prod`.
 7. BedrockModelId: To specify the Amazon Bedrock model ID you want to use for inference. This flexibility allows you to choose the model that best suits your needs. By default, the template leverages the Anthropic Claude 3 Sonnet model, renowned for its exceptional performance. However, if you prefer to utilize a different model, you can seamlessly pass its Amazon Bedrock model ID as a parameter during deployment. It's essential to ensure that you have requested access to the desired model beforehand and that it possesses the necessary vision capabilities required for your specific use case.
-8. UserRoleArn: IAM Role ARN of the user allowed to access Amazon OpenSearch Serverless Collection arn:aws:iam::{AccountId}:role/{roleName}
+8. UserRoleArn: IAM Role ARN of the user allowed to access Amazon OpenSearch Serverless Collection `arn:aws:iam::{AccountId}:role/{roleName}`.
 
 ### Step :three: Viewing the app
 
