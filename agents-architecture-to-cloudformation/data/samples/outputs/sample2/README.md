@@ -10,7 +10,7 @@ Uploading the architecture diagram to the web application generates a step-by-st
 
 The architecture diagram lacks information about security group configurations. Ensure that you modify the step-by-step instructions to incorporate these details. Lastly, initiate the agent's execution by selecting the 'InvokeAgent' button. Triggering the agent's operation will produce the subsequent output.
 
-![artifact-3.mov](/agents-architecture-to-cloudformation/data/samples/outputs/sample2/artifact-3.mov)
+![artifact-3.gif](/agents-architecture-to-cloudformation/data/samples/outputs/sample2/artifact-3.gif)
 
 The final generated AWS CloudFormation template is given below: 
 

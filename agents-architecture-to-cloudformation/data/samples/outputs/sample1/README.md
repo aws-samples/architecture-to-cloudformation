@@ -34,11 +34,11 @@ The flow of data and requests through the architecture is as follows:
 
 Once you are satisfied with the step-by-step explanation, click on the InvokeAgent button. Invoking the agent results in the following output.
 
-![artifact-2.mov](/agents-architecture-to-cloudformation/data/samples/outputs/sample1/artifact-2.mov)
+![artifact-2.gif](/agents-architecture-to-cloudformation/data/samples/outputs/sample1/artifact-2.gif)
 
 The web application empowers users with the capability to modify the auto-generated AWS CloudFormation template through an integrated code editor. This feature encourages users to review and customize the template according to their specific requirements, reducing their dependence on the model's output. Once the necessary modifications have been made, users should ensure to click the `Submit` button to persist the updated template in the DynamoDB table.
 
-![artifact-5.mov](/agents-architecture-to-cloudformation/data/samples/outputs/sample1/artifact-5.mov)
+![artifact-5.gif](/agents-architecture-to-cloudformation/data/samples/outputs/sample1/artifact-5.gif)
 
 The web application provides visibility into the AWS templates that were fetched from the vector database. Furthermore, it offers the capability to download these retrieved templates locally.
 
@@ -46,7 +46,7 @@ The web application provides visibility into the AWS templates that were fetched
 
 Once the first AWS CloudFormation template is generated, users have the capability to repeatedly update and tailor the template to align with their requirements by supplying update instructions via the chat panel.
 
-![artifact-4.mov](/agents-architecture-to-cloudformation/data/samples/outputs/sample1/artifact-4.mov)
+![artifact-4.gif](/agents-architecture-to-cloudformation/data/samples/outputs/sample1/artifact-4.gif)
 
 
 The AWS CloudFormation template that results from multiple iterations of this update process:

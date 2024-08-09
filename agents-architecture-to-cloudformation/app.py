@@ -35,19 +35,7 @@ agent = BedrockAgent(environmentName=environmentName)
 knowledgebase = KnowledgeBase(environmentName=environmentName)
 
 st.sidebar.subheader("Session ID")
-st.sidebar.code(agent.get_session_id())
-
-
-def upload_new_template(template, chat_history_index):
-    knowledgebase.put_generated_cloudformation(
-        sessionId=agent.get_session_id(), template=template
-    )
-
-    st.session_state["chat_history"][chat_history_index]["prompt"] = (
-        "```yaml" + template
-    )
-
-    st.session_state["chat_history"][chat_history_index]["is_valid"] = None
+st.sidebar.code(agent.get_session_id())    
 
 
 warning = st.container()
@@ -176,16 +164,7 @@ if "user_edit_done" in st.session_state and "explain" in st.session_state:
         for index, chat in enumerate(st.session_state["chat_history"]):
             with st.chat_message(chat["role"]):
                 if chat["role"] == "assistant":
-                    # col1, col2 = st.columns((7, 3))
-                    # with col2:
-                    if chat["is_valid"]:
-                        st.success("CloudFormation template is valid!")
-                    elif chat["is_valid"] is False:
-                        st.error("CloudFormation template is not valid!")
-                    else:
-                        st.warning(
-                            "Unable to determine if CloudFormation template is valid or not!"
-                        )
+                    
                     for trace in chat["trace"]:
                         with st.expander(trace["heading"]):
                             if (
@@ -195,7 +174,7 @@ if "user_edit_done" in st.session_state and "explain" in st.session_state:
                                 st.write(trace["content"])
                             else:
                                 st.code(trace["content"])
-
+                                
                     if index == len(st.session_state["chat_history"]) - 1:
 
                         # with col1:
@@ -240,12 +219,19 @@ if "user_edit_done" in st.session_state and "explain" in st.session_state:
 
                         if (
                             response_dict["type"] == "submit"
-                            and len(response_dict["text"]) != 0
+                            and response_dict["text"]
                         ):
-                            upload_new_template(
-                                template=response_dict["text"],
-                                chat_history_index=index,
+                            
+                            st.session_state["chat_history"][index]["prompt"] = (
+                                "```yaml" + response_dict["text"]
                             )
+
+                            st.session_state["chat_history"][index]["is_valid"] = None
+                            
+                            knowledgebase.put_generated_cloudformation(
+                                sessionId=agent.get_session_id(), template=response_dict["text"]
+                            )
+    
                     else:
                         # with col1:
                         custom_btns = [
@@ -279,6 +265,16 @@ if "user_edit_done" in st.session_state and "explain" in st.session_state:
                         )
 
                         # col1.markdown(chat["prompt"], unsafe_allow_html=True)
+                    
+                    if chat["is_valid"]:
+                        st.success("CloudFormation template is valid!")
+                    elif chat["is_valid"] is False:
+                        st.error("CloudFormation template is not valid!")
+                    else:
+                        st.warning(
+                            "Unable to determine if CloudFormation template is valid or not!"
+                        )
+                    
 
                 else:
                     st.markdown(chat["prompt"])
