@@ -15,7 +15,6 @@ Metadata:
         default: 'Environment Configuration'
       Parameters:
       - GitURL
-      - EnvironmentName
     - Label:
         default: 'Autoscaling'
       Parameters:
@@ -74,12 +73,6 @@ Parameters:
     Type: String
     Description: Initial repository for web application
     Default: https://github.com/aws-samples/architecture-to-cloudformation.git
-
-  EnvironmentName:
-    Description: Unique name to distinguish different web application in the same AWS account (min length 1 and max length 4)
-    Type: String
-    MinLength: 1
-    MaxLength: 4
   
   Cpu:
     Description: "CPU of Fargate Task. Make sure you put valid Memory and CPU pair, refer: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-ecs-taskdefinition.html#cfn-ecs-taskdefinition-cpu:~:text=requires%3A%20Replacement-,Cpu,-The%20number%20of"
@@ -157,6 +150,7 @@ Resources:
   LoggingBucket: 
     Type: "AWS::S3::Bucket"
     DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       OwnershipControls:
         Rules:
@@ -176,6 +170,7 @@ Resources:
   LoggingBucketPolicy:
     Type: 'AWS::S3::BucketPolicy'
     DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       Bucket: !Ref LoggingBucket
       PolicyDocument:
@@ -212,7 +207,6 @@ Resources:
     Type: "AWS::IAM::ManagedPolicy"
     Properties:
       Path: /
-      ManagedPolicyName: !Sub "LogsPolicy${EnvironmentName}"
       PolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -232,7 +226,6 @@ Resources:
     Type: AWS::ECS::Cluster
     DependsOn: StreamlitECSRoleCustomResource
     Properties:
-      ClusterName: !Join ['-', ['StreamlitCluster', !Ref EnvironmentName]]
       ClusterSettings:
         - Name: containerInsights
           Value: enabled
@@ -252,7 +245,6 @@ Resources:
   StreamlitExecutionRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Join ['-', ['StreamlitExecutionRole', !Ref EnvironmentName]]
       AssumeRolePolicyDocument:
         Statement:
           - Effect: Allow
@@ -265,7 +257,6 @@ Resources:
   StreamlitECSTaskRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Join ['-', ['StreamlitECSTaskRole', !Ref EnvironmentName]]
       AssumeRolePolicyDocument:
         Statement:
           - Effect: Allow
@@ -281,7 +272,7 @@ Resources:
                 Action:
                   - "ssm:GetParameter"
                 Resource:
-                  - !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/streamlitapp/${EnvironmentName}/*"
+                  - !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/streamlitapp/*"
               - Effect: 'Allow'
                 Action:
                   - "kms:Decrypt"
@@ -300,6 +291,7 @@ Resources:
 
   StreamlitLogGroup:
     DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Type: AWS::Logs::LogGroup
     Properties:
       RetentionInDays: 7
@@ -311,7 +303,6 @@ Resources:
   StreamlitTaskDefinition:
     Type: AWS::ECS::TaskDefinition
     Properties: 
-      Family: !Join ['-', ['StreamlitTaskDefinition', !Ref EnvironmentName]]
       Memory: !Ref Memory
       Cpu: !Ref Cpu
       NetworkMode: awsvpc
@@ -322,7 +313,7 @@ Resources:
       TaskRoleArn: !GetAtt StreamlitECSTaskRole.Arn
       ExecutionRoleArn: !GetAtt StreamlitExecutionRole.Arn
       ContainerDefinitions: 
-        - Name: !Join ['-', ['ContainerDefinition', !Ref EnvironmentName]]
+        - Name: !Join ['-', ['ContainerDefinition', !Sub "${AWS::StackName}"]]
           LogConfiguration:
             LogDriver: "awslogs"
             Options: 
@@ -343,7 +334,6 @@ Resources:
       - StreamlitALBListenerRule
     Type: AWS::ECS::Service
     Properties:
-      ServiceName: !Join ['-', ['StreamlitECSService', !Ref EnvironmentName]]
       Cluster: !Ref StreamlitCluster
       TaskDefinition: !Ref StreamlitTaskDefinition
       DesiredCount: !Ref Task
@@ -356,7 +346,7 @@ Resources:
           SecurityGroups:
             - !Ref StreamlitContainerSecurityGroup
       LoadBalancers:
-        - ContainerName: !Join ['-', ['ContainerDefinition', !Ref EnvironmentName]]
+        - ContainerName: !Join ['-', ['ContainerDefinition', !Sub "${AWS::StackName}"]]
           ContainerPort: !Ref ContainerPort
           TargetGroupArn: !Ref StreamlitContainerTargetGroup
   
@@ -377,7 +367,6 @@ Resources:
   StreamlitAutoScalingPolicy:
     Type: AWS::ApplicationAutoScaling::ScalingPolicy
     Properties:
-      PolicyName: !Join ['', [AutoScalingPolicy, !Ref EnvironmentName]]
       PolicyType: TargetTrackingScaling
       ScalingTargetId: !Ref StreamlitAutoScalingTarget
       TargetTrackingScalingPolicyConfiguration:
@@ -399,10 +388,7 @@ Resources:
       VpcId: !Ref VPCId
       Tags:
         - Key: Name
-          Value: !Join
-            - '-'
-            - - StreamlitALBSecurityGroup
-              - !Ref EnvironmentName
+          Value: !Sub StreamlitALBSecurityGroup${AWS::StackName}
 
   ALBSGOutBoundRule:
     Type: AWS::EC2::SecurityGroupEgress
@@ -434,10 +420,7 @@ Resources:
       VpcId: !Ref VPCId
       Tags:
         - Key: Name
-          Value: !Join
-            - '-'
-            - - StreamlitContainerSecurityGroup
-              - !Ref EnvironmentName
+          Value: !Sub StreamlitContainerSecurityGroup${AWS::StackName}
 
   ContainerSGOutBoundRule:
     Type: AWS::EC2::SecurityGroupEgress
@@ -468,7 +451,6 @@ Resources:
       - LoggingBucketPolicy
     Type: "AWS::ElasticLoadBalancingV2::LoadBalancer"
     Properties:
-      Name: !Join ['-', ['StreamlitALB', !Ref EnvironmentName]]
       LoadBalancerAttributes:
         - Key: access_logs.s3.enabled
           Value: true
@@ -522,7 +504,6 @@ Resources:
       Protocol: "HTTP"
       TargetType: ip
       VpcId: !Ref VPCId
-      Name: !Join ['-', ['StreamlitContainerTG', !Ref EnvironmentName]]
       TargetGroupAttributes:
         - Key: stickiness.enabled
           Value: true
@@ -578,7 +559,7 @@ Resources:
         Logging: 
           Bucket: !Sub '${LoggingBucket}.s3.amazonaws.com'
           IncludeCookies: true
-          Prefix: !Sub distribution-${EnvironmentName}-logs/
+          Prefix: !Sub distribution-${AWS::StackName}-logs/
         ViewerCertificate:
           CloudFrontDefaultCertificate: true
           MinimumProtocolVersion: TLSv1.2_2021
@@ -593,7 +574,6 @@ Resources:
   StreamlitCodeBuildExecutionRole:
     Type: 'AWS::IAM::Role'
     Properties:
-      RoleName: !Join ['-', ['StreamlitCodeBuildRole', !Ref EnvironmentName]]
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -628,7 +608,6 @@ Resources:
   StreamlitCodeBuild:
     Type: AWS::CodeBuild::Project
     Properties:
-      Name: !Join ['-', ['StreamlitCodeBuild', !Ref EnvironmentName]]
       Description: CodeBuild for building image
       Cache:
         Location: LOCAL
@@ -686,7 +665,6 @@ Resources:
   StreamlitBuildCustomResourceRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Join ['-', ['BuildResourceRole', !Ref EnvironmentName]]
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -719,7 +697,6 @@ Resources:
   StreamlitBuildCustomResourceFunction:
     Type: "AWS::Lambda::Function"
     Properties:
-      FunctionName: !Join ['-', ['BuildResourceF', !Ref EnvironmentName]]
       Handler: index.handler
       Role: !GetAtt StreamlitBuildCustomResourceRole.Arn
       Timeout: 300
@@ -765,7 +742,6 @@ Resources:
   StreamlitECSRoleCustomResourceRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Join ['-', ['ECSCustomRole', !Ref EnvironmentName]]
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -799,7 +775,6 @@ Resources:
   StreamlitECSRoleCustomResourceFunction:
     Type: "AWS::Lambda::Function"
     Properties:
-      FunctionName: !Join ['-', ['ECSCustomF', !Ref EnvironmentName]]
       Handler: index.handler
       Role: !GetAtt StreamlitECSRoleCustomResourceRole.Arn
       Timeout: 300
