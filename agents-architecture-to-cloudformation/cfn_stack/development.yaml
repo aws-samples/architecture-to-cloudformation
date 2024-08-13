@@ -214,6 +214,7 @@ Resources:
   LoggingBucket:
     Type: AWS::S3::Bucket
     DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       OwnershipControls:
         Rules:
@@ -233,6 +234,7 @@ Resources:
   LoggingBucketPolicy:
     Type: AWS::S3::BucketPolicy
     DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       Bucket: !Ref LoggingBucket
       PolicyDocument:
@@ -688,6 +690,7 @@ Resources:
 
   StreamlitLogGroup:
     DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Type: AWS::Logs::LogGroup
     Properties:
       RetentionInDays: 7
@@ -884,6 +887,7 @@ Resources:
 
   ArtifactCodeBuildLogGroup:
     DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Type: AWS::Logs::LogGroup
     Properties:
       RetentionInDays: 7
@@ -980,6 +984,7 @@ Resources:
 
   StreamlitCodeBuildLogGroup:
     DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Type: AWS::Logs::LogGroup
     Properties:
       RetentionInDays: 7
