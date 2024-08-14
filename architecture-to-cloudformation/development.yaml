@@ -367,6 +367,7 @@ Resources:
   StreamlitAutoScalingPolicy:
     Type: AWS::ApplicationAutoScaling::ScalingPolicy
     Properties:
+      PolicyName: !Join ['', [AutoScalingPolicy, !Sub "${AWS::StackName}"]]
       PolicyType: TargetTrackingScaling
       ScalingTargetId: !Ref StreamlitAutoScalingTarget
       TargetTrackingScalingPolicyConfiguration:
