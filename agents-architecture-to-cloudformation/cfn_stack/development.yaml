@@ -1070,6 +1070,7 @@ Resources:
           import boto3
           from time import sleep
           import cfnresponse
+          from botocore.exceptions import ClientError
           codebuild = boto3.client("codebuild")
           iam_client = boto3.client('iam')
           def clean_bucket(event):
